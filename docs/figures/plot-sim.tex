@@ -1,0 +1,26 @@
+% Simulare politici de evacuare.
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 2, horizontal sep=17mm, vertical sep=18mm},
+    width=0.5\linewidth, height=50mm, xmode=log, xtick={1,2,5,10,20,50}, xticklabels={1,2,5,10,20,50},
+    xlabel={capacitate (\% din chei)}, ylabel={rata de hit}, ymin=0, ymax=1]
+  \nextgroupplot[title={\small Zipf $s=0{,}8$}, legend pos=north west]
+    \addplot table[x=cap, y=lru, col sep=comma] {\datadir sim_zipf_08.csv};
+    \addplot table[x=cap, y=fifo, col sep=comma] {\datadir sim_zipf_08.csv};
+    \addplot table[x=cap, y=clock, col sep=comma] {\datadir sim_zipf_08.csv};
+    \addplot[c6, thick, dashed] table[x=cap, y=ideal, col sep=comma] {\datadir sim_zipf_08.csv};
+    \legend{LRU, FIFO, CLOCK, ideal}
+  \nextgroupplot[title={\small Zipf $s=0{,}99$}]
+    \addplot table[x=cap, y=lru, col sep=comma] {\datadir sim_zipf_099.csv};
+    \addplot table[x=cap, y=fifo, col sep=comma] {\datadir sim_zipf_099.csv};
+    \addplot table[x=cap, y=clock, col sep=comma] {\datadir sim_zipf_099.csv};
+    \addplot[c6, thick, dashed] table[x=cap, y=ideal, col sep=comma] {\datadir sim_zipf_099.csv};
+  \nextgroupplot[title={\small Zipf $s=0{,}8$ + 20\% scanări}]
+    \addplot table[x=cap, y=lru, col sep=comma] {\datadir sim_zipf_scan_08.csv};
+    \addplot table[x=cap, y=fifo, col sep=comma] {\datadir sim_zipf_scan_08.csv};
+    \addplot table[x=cap, y=clock, col sep=comma] {\datadir sim_zipf_scan_08.csv};
+  \nextgroupplot[title={\small Zipf $s=0{,}99$ + 20\% scanări}]
+    \addplot table[x=cap, y=lru, col sep=comma] {\datadir sim_zipf_scan_099.csv};
+    \addplot table[x=cap, y=fifo, col sep=comma] {\datadir sim_zipf_scan_099.csv};
+    \addplot table[x=cap, y=clock, col sep=comma] {\datadir sim_zipf_scan_099.csv};
+\end{groupplot}
+\end{tikzpicture}

@@ -1,0 +1,50 @@
+% Preambul comun (documentație + prezentare folosesc aceleași figuri).
+\usepackage{fontspec}
+\usepackage[romanian]{babel}
+\usepackage{csquotes}
+\usepackage{newunicodechar}
+% Simboluri absente din Latin Modern: le compunem în modul matematic.
+\newunicodechar{≈}{\ensuremath{\approx}}
+\newunicodechar{≤}{\ensuremath{\leq}}
+\newunicodechar{≥}{\ensuremath{\geq}}
+\newunicodechar{↔}{\ensuremath{\leftrightarrow}}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,shapes.multipart,fit,backgrounds,calc,decorations.pathreplacing,matrix}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+% Format numeric românesc pe axe: 60.000 și 0,8.
+\pgfkeys{/pgf/number format/.cd, use comma, 1000 sep={.}}
+\usepgfplotslibrary{groupplots}
+
+% Paletă (accesibilă, distinctă în alb-negru prin marcaje).
+\definecolor{c1}{HTML}{2F6FDE}
+\definecolor{c2}{HTML}{E07B39}
+\definecolor{c3}{HTML}{1F9D63}
+\definecolor{c4}{HTML}{8E5CC4}
+\definecolor{c5}{HTML}{C8423B}
+\definecolor{c6}{HTML}{6B7280}
+\definecolor{boxbg}{HTML}{F3F5F9}
+
+\pgfplotscreateplotcyclelist{spd}{
+  {c1,mark=*,thick},{c2,mark=square*,thick},{c3,mark=triangle*,thick},
+  {c4,mark=diamond*,thick},{c5,mark=pentagon*,thick},{c6,mark=o,thick,dashed}}
+\pgfplotsset{
+  every axis/.append style={cycle list name=spd, grid=major, grid style={gray!25},
+    tick label style={font=\footnotesize}, label style={font=\small},
+    legend style={font=\footnotesize, draw=none, fill=white, fill opacity=0.85, text opacity=1},
+    legend cell align=left},
+}
+
+% Axe de debit în mii: 60k în loc de 60.000.
+\pgfplotsset{kticks/.style={scaled y ticks=base 10:-3, ytick scale label code/.code={},
+  yticklabel={\pgfmathprintnumber[fixed,precision=0]{\tick}k}}}
+
+\tikzset{
+  comp/.style={draw, rounded corners=3pt, fill=boxbg, minimum height=8mm, minimum width=22mm, align=center, font=\small},
+  store/.style={draw, cylinder, shape border rotate=90, aspect=0.25, fill=boxbg, minimum height=11mm, minimum width=18mm, align=center, font=\small},
+  arr/.style={-{Stealth[length=2.2mm]}, thick},
+  darr/.style={{Stealth[length=2.2mm]}-{Stealth[length=2.2mm]}, thick},
+  note/.style={font=\scriptsize, text=black!65, align=center},
+}

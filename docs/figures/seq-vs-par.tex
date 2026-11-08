@@ -1,0 +1,19 @@
+% Arhitectura secvențială vs paralelă/distribuită.
+\begin{tikzpicture}[node distance=5mm and 7mm]
+  \node[font=\small\bfseries] (t1) {(a) Secvențial};
+  \node[comp, below=3mm of t1] (c1) {1 client};
+  \node[comp, below=of c1, minimum width=28mm] (p1) {1 proces, 1 fir\\[-1pt]\scriptsize cerere după cerere};
+  \node[store, below=of p1] (d1) {PostgreSQL};
+  \draw[arr] (c1) -- (p1); \draw[arr] (p1) -- node[note, right] {fiecare citire} (d1);
+
+  \node[font=\small\bfseries, right=50mm of t1] (t2) {(b) Paralel și distribuit};
+  \node[comp, below=3mm of t2, minimum width=36mm] (c2) {N clienți concurenți};
+  \node[comp, below=of c2, minimum width=36mm, fill=c1!12] (lb) {load balancer};
+  \node[comp, below left=5mm and -12mm of lb, minimum width=24mm, fill=c3!10] (i1) {instanță 1\\[-1pt]\scriptsize M task-uri tokio\\[-2pt]\scriptsize K fire};
+  \node[comp, below right=5mm and -12mm of lb, minimum width=24mm, fill=c3!10] (i2) {instanță 2\\[-1pt]\scriptsize M task-uri tokio\\[-2pt]\scriptsize K fire};
+  \node[comp, below=12mm of $(i1)!0.5!(i2)$, minimum width=42mm, fill=c2!12] (cc) {cache distribuit (S shard-uri × noduri)};
+  \node[store, below=of cc] (d2) {PostgreSQL};
+  \draw[arr] (c2) -- (lb); \draw[arr] (lb) -- (i1); \draw[arr] (lb) -- (i2);
+  \draw[arr] (i1) -- (cc); \draw[arr] (i2) -- (cc);
+  \draw[arr] (cc) -- node[note, right] {doar la miss} (d2);
+\end{tikzpicture}

@@ -1,0 +1,18 @@
+% E5 scale-out, E6 noduri, E7 stampede.
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=3 by 1, horizontal sep=21mm}, width=0.36\linewidth, height=52mm]
+  \nextgroupplot[ybar, bar width=9pt, ymin=0, xtick={1,2}, xlabel={instanțe web}, ylabel={cereri / s},
+      enlarge x limits=0.6, ymax=108000, legend columns=2, legend style={at={(0.5,0.98)}, anchor=north},
+      kticks, title={\small (a) E5: scale-out}]
+    \addplot[fill=c6!50, draw=c6] table[x=label, y=none_throughput_rps, col sep=comma] {\datadir e5.csv};
+    \addplot[fill=c2!70, draw=c2] table[x=label, y=cluster_throughput_rps, col sep=comma] {\datadir e5.csv};
+    \legend{none, cluster}
+  \nextgroupplot[xtick={1,2,3}, xlabel={noduri de cache}, ylabel={rata de hit}, ymin=0, ymax=1,
+      title={\small (b) E6: memorie agregată}]
+    \addplot table[x=label, y=cluster_hit_ratio, col sep=comma] {\datadir e6.csv};
+  \nextgroupplot[ybar, bar width=16pt, ymin=0, xtick={0,1}, xticklabels={fără, cu}, xlabel={single-flight},
+      ylabel={interogări DB}, enlarge x limits=0.6, scaled y ticks=false, ymax=170000,
+      yticklabel={\pgfmathprintnumber[fixed]{\tick}}, title={\small (c) E7: stampede}]
+    \addplot[fill=c5!60, draw=c5] table[x=coalesce, y=db_reads, col sep=comma] {\datadir e7.csv};
+\end{groupplot}
+\end{tikzpicture}

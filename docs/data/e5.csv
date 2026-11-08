@@ -1,0 +1,3 @@
+label,none_throughput_rps,none_p50_ms,none_p99_ms,none_hit_ratio,cluster_throughput_rps,cluster_p50_ms,cluster_p99_ms,cluster_hit_ratio
+1,55410.2,2.359,4.379,0.0,73945.2,1.38,5.823,0.8476
+2,53141.4,2.145,7.451,0.0,67430.0,1.492,7.735,0.8726

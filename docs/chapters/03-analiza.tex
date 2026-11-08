@@ -1,0 +1,115 @@
+\chapter{Analiza problemei}
+\label{ch:analiza}
+
+\section{Definirea problemei}
+
+Se consideră un magazin online cu \textbf{200 de categorii}, \textbf{100.000 de produse} și
+\textbf{500.000 de recenzii}, stocate în PostgreSQL. Aplicația web expune trei operații:
+
+\begin{enumerate}
+  \item \texttt{GET /api/products/\{id\}} — detaliile unui produs împreună cu media notelor și numărul de
+        recenzii (în forma normalizată: \texttt{LEFT JOIN} + agregare pe $\approx 5$ rânduri);
+  \item \texttt{GET /api/categories/\{id\}/top} — cele mai bine cotate produse dintr-o categorie
+        (în forma normalizată: \texttt{JOIN} + \texttt{GROUP BY} + sortare peste $\approx 2.500$ de rânduri);
+  \item \texttt{PUT /api/products/\{id\}} — modificarea prețului și/sau stocului.
+\end{enumerate}
+
+Traficul este dominat de citiri (90–99\%), cu popularitate Zipf. Problema este: \emph{cum poate fi
+servit acest trafic cu debit maxim și latență minimă, păstrând datele corecte, folosind memorie
+limitată și mai multe mașini?}
+
+\section{Cerințe}
+
+\subsection{Cerințe funcționale}
+\begin{itemize}
+  \item F1. Citirea produselor și a clasamentelor, cu indicarea sursei (\texttt{X-Cache: HIT/MISS}).
+  \item F2. Modificarea produselor, cu propagarea corectă în cache conform strategiei alese.
+  \item F3. Comutarea la runtime a backend-ului de cache, a strategiei, politicii, capacității și TTL-ului.
+  \item F4. Statistici: hit/miss, interogări DB, mărimea cozii write-behind, statistici per nod.
+  \item F5. Documentație interactivă a API-ului (OpenAPI/Swagger) și o interfață de control.
+\end{itemize}
+
+\subsection{Cerințe nefuncționale}
+\begin{itemize}
+  \item N1. \textbf{Performanță}: latență p50 sub 1 ms pentru hit-uri; debit de ordinul zecilor de mii de
+        cereri/s pe un singur host.
+  \item N2. \textbf{Scalabilitate}: adăugarea de instanțe web și de noduri de cache crește capacitatea.
+  \item N3. \textbf{Coerență}: o scriere confirmată trebuie să fie vizibilă pe toate instanțele în cel mult
+        câteva sute de milisecunde (strategiile sincrone) sau după flush (write-behind).
+  \item N4. \textbf{Reziliență}: căderea cache-ului nu trebuie să oprească aplicația (degradare la DB);
+        oprirea aplicației nu trebuie să piardă scrierile din coada write-behind.
+  \item N5. \textbf{Reproductibilitate}: întregul mediu pornește cu o singură comandă; experimentele sunt
+        scriptate.
+\end{itemize}
+
+\section{Arhitectura secvențială}
+\label{sec:secvential}
+
+Varianta de referință (\cref{fig:seqpar}a) este un singur proces care tratează cererile una câte una și
+interoghează baza de date pentru fiecare citire. Analiza ei arată limitele:
+
+\begin{itemize}
+  \item debitul este $\lambda = 1/W$, unde $W$ include rețeaua și execuția interogării; cu $W \approx 1$ ms
+        obținem cel mult $\approx 1.000$ cereri/s, indiferent de numărul de nuclee disponibile;
+  \item baza de date este solicitată de fiecare cerere, deși 80–90\% dintre cereri vizează aceleași câteva
+        mii de obiecte;
+  \item nu există toleranță la defecte: căderea procesului oprește serviciul.
+\end{itemize}
+
+Varianta secvențială este reprodusă experimental prin backend-ul \texttt{none} cu un singur client
+(experimentul E4, concurență 1) și, pentru motorul de cache, prin configurația 1 fir × 1 shard.
+
+\section{Arhitectura paralelă și distribuită}
+\label{sec:paralel}
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\linewidth}{!}{\input{figures/seq-vs-par}}
+  \caption{Arhitectura secvențială (a) față de arhitectura paralelă și distribuită (b).}
+  \label{fig:seqpar}
+\end{figure}
+
+Arhitectura propusă (\cref{fig:seqpar}b) introduce paralelism pe mai multe niveluri:
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{lXl}
+\toprule
+Nivel & Mecanism & Tip \\
+\midrule
+Cereri & runtime asincron tokio: mii de task-uri multiplexate pe un pool de fire (work-stealing) & concurență + paralelism \\
+Structura de date & \texttt{memtable}: $S$ shard-uri independente, fiecare cu propriul mutex & paralelism pe date \\
+Instanțe & 2 instanțe web identice, fără stare, în spatele nginx (\texttt{least\_conn}) & scalare orizontală \\
+Cache distribuit & $n$ noduri, chei partiționate prin consistent hashing & partiționare (sharding) \\
+Invalidare & difuzare paralelă a invalidărilor pe tag (\texttt{JoinSet}) și \texttt{NOTIFY} & comunicare distribuită \\
+Scrieri & write-behind: 4 workeri asincroni, partiționați după cheie, grupează scrierile în loturi & pipeline producător–consumator \\
+\bottomrule
+\end{tabularx}
+\caption{Nivelurile de paralelism și distribuire.}
+\end{table}
+
+\subsection{Descompunerea problemei}
+
+Cererile HTTP sunt independente (\emph{embarrassingly parallel}); singurele puncte de sincronizare sunt
+structurile partajate: cache-ul și baza de date. Sharding-ul elimină sincronizarea globală în cache:
+două chei din shard-uri diferite pot fi accesate simultan fără coordonare. Pentru cache-ul distribuit,
+partiționarea prin consistent hashing face ca fiecare cheie să aibă un singur proprietar, deci nu este
+nevoie de protocoale de consens; singura operație care atinge toate nodurile este invalidarea pe tag.
+
+\subsection{Comunicare și sincronizare}
+
+\begin{itemize}
+  \item instanță ↔ nod de cache: protocol text binary-safe peste TCP, conexiuni persistente din pool,
+        suport pentru \emph{pipelining};
+  \item instanță ↔ PostgreSQL: pool de conexiuni (sqlx); notificări asincrone prin \texttt{LISTEN};
+  \item în proces: \texttt{Mutex} per shard, \texttt{RwLock} pentru configurația curentă (înlocuită
+        atomic prin \texttt{Arc}), canal \texttt{mpsc} mărginit pentru write-behind (\emph{backpressure}),
+        \texttt{OnceCell} per cheie pentru single-flight.
+\end{itemize}
+
+\subsection{Compromisuri}
+
+Distribuirea aduce costuri noi: o ședere în rețea per acces (≈100–300 µs față de ≈1 µs pentru L1),
+problema coerenței între instanțe și complexitate operațională. De aceea sistemul oferă și varianta pe
+două niveluri (L1 local cu TTL scurt + L2 distribuit), care combină latența cache-ului local cu
+capacitatea agregată a clusterului.

@@ -1,0 +1,7 @@
+# TeX Live pentru compilarea documentației și a prezentării.
+FROM texlive/texlive:latest-medium
+RUN tlmgr install pgfplots beamertheme-metropolis tcolorbox environ tikzfill pdfcol \
+      csquotes cleveref enumitem \
+      fontawesome5 appendixnumberbeamer \
+      titlesec placeins newunicodechar \
+ && luaotfload-tool -u

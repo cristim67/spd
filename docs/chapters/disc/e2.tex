@@ -1,0 +1,12 @@
+\paragraph{Interpretare.} Cu memoria limitată la 10\% din chei, rata de hit crește puternic cu asimetria:
+de la \R{e2/local/0.6/hit_ratio}\% la $s=0{,}6$ la \R{e2/local/1.2/hit_ratio}\% la $s=1{,}2$. Valorile urmăresc
+îndeaproape limita teoretică IRM (\cref{eq:ideal}): diferența de 2–8 puncte reprezintă costul unei politici
+\emph{online} (LRU) față de cache-ul static optim. Cele două backend-uri au practic aceeași rată de hit, pentru
+că au aceeași capacitate totală.
+
+Debitul cache-ului local se dublează pe intervalul studiat (\R{e2/local/0.6/throughput_rps} $\rightarrow$
+\R{e2/local/1.2/throughput_rps} cereri/s), în timp ce baza de date rămâne aproape constantă. La asimetrie mică
+($s=0{,}6$), clusterul este însă \emph{mai lent} decât baza de date (\R{e2/cluster/0.6/throughput_rps} față de
+\R{e2/none/0.6/throughput_rps}). Explicația vine din \cref{eq:amat}: un cache la distanță adaugă o ședere în
+rețea fiecărei cereri, deci câștigă doar dacă $h > T_{\text{cache}}/T_{\text{DB}}$. Când interogarea sursă este
+ieftină, pragul de rentabilitate este ridicat, iar cu doar \R{e2/cluster/0.6/hit_ratio}\% hit-uri el nu este atins.

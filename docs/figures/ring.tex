@@ -1,0 +1,16 @@
+% Inelul de consistent hashing cu noduri virtuale.
+\begin{tikzpicture}
+  \def\R{2.2}
+  \draw[thick, gray!60] (0,0) circle (\R);
+  \foreach \ang/\col/\lab in {10/c1/A,40/c2/B,75/c3/C,110/c1/A,150/c3/C,185/c2/B,220/c1/A,255/c2/B,290/c3/C,330/c2/B} {
+    \fill[\col] (\ang:\R) circle (3.2pt);
+    \node[font=\scriptsize, text=\col] at (\ang:\R+0.35) {\lab};
+  }
+  \foreach \ang/\k in {25/k_1,95/k_2,200/k_3,305/k_4} {
+    \draw[fill=white, draw=black] (\ang:\R) circle (2.2pt);
+    \node[font=\scriptsize] at (\ang:\R-0.42) {$\k$};
+  }
+  \draw[-{Stealth}, thick, black!60] (27:\R-0.15) arc (27:38:\R-0.15);
+  \draw[-{Stealth}, thick, black!60] (97:\R-0.15) arc (97:108:\R-0.15);
+  \node[note, align=center] at (0,0) {$h(\text{cheie}) \mapsto$ primul\\nod virtual în sens orar\\[2pt] 160 noduri virtuale / nod};
+\end{tikzpicture}

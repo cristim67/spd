@@ -1,0 +1,137 @@
+\chapter{Fundamente teoretice}
+\label{ch:fundamente}
+
+\section{Ierarhia de memorie și localitatea referințelor}
+
+Ideea de cache provine din arhitectura calculatoarelor: o memorie mică și rapidă păstrează o
+submulțime a datelor dintr-o memorie mare și lentă \cite{hennessy}. Eficiența ei se bazează pe
+\emph{localitatea referințelor}: datele accesate recent (localitate temporală) sau populare vor fi
+probabil accesate din nou. În aplicațiile web, ierarhia arată astfel:
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{lll}
+\toprule
+Nivel & Exemplu & Latență tipică \\
+\midrule
+Memorie în proces (L1) & \texttt{HashMap} protejat de mutex & 0{,}05–1 µs \\
+Cache în rețea locală (L2) & Memcached, Redis, \texttt{cache-node} & 50–300 µs \\
+Bază de date, date în RAM & PostgreSQL, \emph{shared buffers} & 0{,}2–2 ms \\
+Bază de date, agregări / disc & join + \texttt{GROUP BY}, I/O & 2–100 ms \\
+\bottomrule
+\end{tabular}
+\caption{Ordine de mărime ale latențelor în ierarhia de date a unei aplicații web.}
+\end{table}
+
+Timpul mediu de acces efectiv este dat de relația clasică:
+\begin{equation}
+  T_{\text{mediu}} = h \cdot T_{\text{cache}} + (1-h)\cdot\left(T_{\text{cache}} + T_{\text{DB}}\right)
+  = T_{\text{cache}} + (1-h)\cdot T_{\text{DB}},
+  \label{eq:amat}
+\end{equation}
+unde $h$ este rata de hit. Deoarece $T_{\text{DB}} \gg T_{\text{cache}}$, câștigul este dominat de
+$(1-h)$: trecerea de la $h=0{,}90$ la $h=0{,}99$ reduce de zece ori numărul de accesări ale bazei de
+date. Rata de hit este deci metrica centrală a oricărui cache.
+
+\section{Distribuția Zipf a popularității}
+
+Studiile asupra traficului web \cite{breslau} arată că popularitatea obiectelor urmează aproximativ o
+lege Zipf: probabilitatea ca o cerere să vizeze obiectul de rang $i$ dintr-un total de $N$ este
+\begin{equation}
+  p_i = \frac{i^{-s}}{H_{N,s}}, \qquad H_{N,s} = \sum_{k=1}^{N} k^{-s},
+\end{equation}
+unde exponentul $s$ (de obicei între $0{,}6$ și $1{,}2$) controlează asimetria. În modelul
+\emph{Independent Reference Model} (IRM), cel mai bun cache static de capacitate $C$ păstrează cele
+mai populare $C$ obiecte și atinge rata de hit
+\begin{equation}
+  h^{*}(C) = \frac{H_{C,s}}{H_{N,s}},
+  \label{eq:ideal}
+\end{equation}
+care este o limită superioară utilă pentru politicile reale (folosită în \cref{sec:sim}). Pentru
+$s = 0{,}99$ și $N = 100.000$, un cache cu doar 10\% din chei poate servi teoretic aproape 80\% din
+cereri — de aici eficiența cache-urilor mici.
+
+\section{Politici de evacuare}
+
+Când cache-ul este plin, trebuie ales ce intrare se elimină. Algoritmul optim (Belady, MIN)
+\cite{belady} elimină intrarea care va fi folosită cel mai târziu în viitor, dar necesită cunoașterea
+viitorului. Politicile practice aproximează acest comportament:
+
+\begin{description}
+  \item[FIFO] elimină cea mai veche intrare inserată; ignoră complet accesele. Cost minim, rată de hit
+        mai slabă.
+  \item[LRU] (\emph{Least Recently Used}) elimină intrarea neaccesată de cel mai mult timp. Exploatează
+        localitatea temporală, dar fiecare acces modifică structura (mutare în capul listei), ceea ce
+        crește contenția sub concurență. Este vulnerabilă la \emph{scanări}: o parcurgere secvențială a
+        multor chei reci elimină setul fierbinte.
+  \item[CLOCK] (\emph{second chance}) \cite{corbato} aproximează LRU cu un singur bit de referință per
+        intrare: la acces doar se setează bitul; la evacuare, intrările cu bitul setat primesc o „a doua
+        șansă" (bitul se resetează). Accesul nu mai mută noduri, deci operația de citire este mai ieftină.
+\end{description}
+
+Politici mai sofisticate (LFU, ARC \cite{megiddo}, W-TinyLFU) combină recența cu frecvența; ele sunt
+discutate ca direcții viitoare.
+
+\section{Strategii de citire și scriere}
+
+\paragraph{Cache-aside (lazy loading).} Aplicația caută întâi în cache; la \emph{miss} citește din baza
+de date și populează cache-ul. Este modelul folosit pentru citiri în acest proiect.
+
+\paragraph{Invalidare la scriere.} La o modificare, aplicația scrie în baza de date și apoi
+\emph{șterge} intrarea din cache. Este simplă și sigură, dar următoarea citire va fi un miss.
+
+\paragraph{Write-through.} Aplicația scrie în baza de date și apoi \emph{actualizează} cache-ul cu
+valoarea nouă. Rata de hit se păstrează, cu prețul unei latențe de scriere mai mari.
+
+\paragraph{Write-behind (write-back).} Aplicația actualizează imediat cache-ul și confirmă clientul;
+scrierea în baza de date este amânată și grupată în loturi. Scrierile devin foarte rapide și numărul de
+tranzacții scade drastic, dar consistența devine \emph{eventuală}, iar o cădere înainte de flush poate
+pierde date.
+
+\section{Consistență și coerență}
+
+Un cache introduce inevitabil o a doua copie a datelor. Teorema CAP \cite{brewer} formalizează
+compromisul dintre consistență și disponibilitate în prezența partițiilor de rețea; pentru cache-uri,
+alegerea uzuală este \emph{consistența eventuală} cu fereastră de inconsistență limitată de TTL.
+Probleme clasice:
+
+\begin{itemize}
+  \item \textbf{coerența cache-urilor locale}: fiecare instanță are propria copie; o scriere pe instanța A
+        trebuie să invalideze copia din B. Proiectul folosește notificări \texttt{LISTEN/NOTIFY} emise de
+        un trigger PostgreSQL.
+  \item \textbf{cursa citire–invalidare}: un cititor obține valoarea veche din DB, un scriitor modifică și
+        invalidează, apoi cititorul populează cache-ul cu valoarea veche. TTL-ul limitează durata
+        inconsistenței; soluții complete folosesc \emph{lease}-uri \cite{memcache-fb} sau versiuni.
+  \item \textbf{cache stampede} (\emph{thundering herd}): la expirarea unei chei foarte populare, sute de
+        cereri concurente ratează simultan și lovesc baza de date. Soluția implementată este
+        \emph{single-flight}: o singură cerere per cheie interoghează baza de date, celelalte așteaptă
+        rezultatul.
+\end{itemize}
+
+\section{Distribuirea datelor: consistent hashing}
+
+Distribuirea cheilor pe $n$ noduri prin $\text{hash}(k) \bmod n$ este echilibrată, dar la adăugarea unui
+nod aproape toate cheile își schimbă nodul, ceea ce golește efectiv cache-ul. \emph{Consistent hashing}
+\cite{karger} plasează nodurile și cheile pe un inel; fiecare cheie aparține primului nod întâlnit în
+sens orar. La modificarea topologiei se mută doar $\approx 1/n$ din chei. Pentru echilibrare, fiecare nod
+fizic apare de mai multe ori pe inel (\emph{noduri virtuale}).
+
+\section{Metrici și legi de performanță}
+
+\paragraph{Legea lui Little.} Pentru un sistem stabil, numărul mediu de cereri în sistem este
+$L = \lambda W$ \cite{little}. Într-un test \emph{closed-loop} cu $L$ clienți concurenți, debitul este
+$\lambda = L / W$: dacă latența rămâne constantă, debitul crește liniar cu concurența, până la saturarea
+unei resurse.
+
+\paragraph{Legea lui Amdahl.} Dacă o fracțiune $f$ a lucrului este paralelizabilă, accelerarea maximă pe
+$p$ procesoare este \cite{amdahl}
+\begin{equation}
+  S(p) = \frac{1}{(1-f) + f/p}.
+  \label{eq:amdahl}
+\end{equation}
+Secțiunile critice (de exemplu un mutex global) reprezintă partea serială $(1-f)$; sharding-ul reduce
+această parte.
+
+\paragraph{Percentile de latență.} Media ascunde coada distribuției. Pentru aplicații web contează p95,
+p99 și p99.9: cu 100 de apeluri per pagină, aproape fiecare pagină „vede" latența p99. Latențele sunt
+înregistrate cu histograme HDR \cite{tene}, cu precizie de 3 cifre semnificative.

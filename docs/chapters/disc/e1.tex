@@ -1,0 +1,22 @@
+\paragraph{Interpretare.} Toate cache-urile in-memory reale depășesc baza de date. Cache-ul local
+are cel mai mare debit (\R{e1/local/rps} cereri/s, de \R{e1/local/speedup}× față de \texttt{none}) și cea mai
+mică latență mediană (\R{e1/local/p50}~ms), pentru că un hit nu părăsește procesul. Rata lui de hit
+(\R{e1/local/hit}\%) este însă mai mică decât a cache-urilor partajate (\R{e1/cluster/hit}\% pentru cluster,
+\R{e1/redis/hit}\% pentru Redis). Cauza: fiecare dintre cele două instanțe își încălzește separat propria copie,
+iar notificările \texttt{NOTIFY} invalidează ambele copii la fiecare scriere. Clusterul propriu
+(\R{e1/cluster/rps} cereri/s) este comparabil cu Redis (\R{e1/redis/rps}), deși folosește un protocol și un
+motor scrise de la zero.
+
+Varianta \texttt{tiered} (\R{e1/tiered/rps}) are rata de hit cea mai mare, dar debit mai mic decât clusterul
+simplu. Având un nivel local, ea reactivează \texttt{NOTIFY}, care serializează commit-urile
+(\cref{sec:optimizari}), și dublează scrierile în cache la fiecare miss. Câștigul nivelului L1 apare doar
+când latența rețelei până la L2 e mare, ceea ce nu e cazul într-o rețea Docker locală.
+
+Rezultatul cel mai instructiv este \texttt{pgmem}: tabela in-memory din PostgreSQL este \emph{mai lentă} decât
+baza de date fără cache (\R{e1/pgmem/rps} față de \R{e1/none/rps} cereri/s), deși are rată de hit
+\R{e1/pgmem/hit}\%. Un hit costă aici la fel de mult ca interogarea originală: aceeași parsare, aceeași
+execuție SQL și același pool de conexiuni. După optimizările din \cref{sec:optimizari}, interogarea sursă
+este un simplu lookup pe cheia primară, servit din \emph{shared buffers}. Un miss costă chiar trei operații
+(citire cache, citire DB, \emph{upsert}). Concluzia: \textbf{o tabelă in-memory într-un SGBD nu este un cache
+eficient pentru date pe care SGBD-ul le servește deja din memorie}. Valoarea ei apare doar când rezultatul
+cache-uit este mult mai scump decât un lookup.

@@ -1,0 +1,11 @@
+\paragraph{Interpretare.} Pentru toate capacitățile, ordinea este aceeași: CLOCK $\gtrsim$ LRU $>$ FIFO. La
+$s = 0{,}99$ și 10\% capacitate: CLOCK \R{sim/zipf/0.99/10/clock}\%, LRU \R{sim/zipf/0.99/10/lru}\%, FIFO
+\R{sim/zipf/0.99/10/fifo}\%, față de limita teoretică \R{sim/zipf/0.99/10/ideal}\%. Faptul că CLOCK egalează sau
+depășește LRU este un rezultat cunoscut. Sub modelul IRM recența nu este semnalul optim, iar „a doua șansă"
+acordată intrărilor referențiate acționează ca un filtru slab de frecvență. CLOCK este în plus mai ieftin,
+pentru că un hit nu modifică lista.
+
+Scanările secvențiale (rândul de jos) degradează toate politicile: la $s=0{,}99$ și 10\% capacitate, LRU
+scade de la \R{sim/zipf/0.99/10/lru}\% la \R{sim/zipf+scan/0.99/10/lru}\%. Cheile reci, accesate o singură dată,
+împing din cache setul fierbinte. Diferența de 5–14 puncte față de optim și sensibilitatea la scanări motivează
+politicile cu admitere bazată pe frecvență (W-TinyLFU, ARC).

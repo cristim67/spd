@@ -1,0 +1,176 @@
+\chapter{Implementare}
+\label{ch:implementare}
+
+\section{Motorul \texttt{memtable}}
+
+Operația de citire dintr-un shard ilustrează politicile de evacuare: expirarea TTL este verificată leneș
+la acces, iar efectul unui hit depinde de politică.
+
+\begin{code}{Citirea dintr-un shard (\texttt{crates/memtable/src/shard.rs}).}
+pub(crate) fn get(&mut self, key: &str, now: Instant) -> Lookup {
+    let Some(&i) = self.map.get(key) else { return Lookup::Miss };
+    if self.entry(i).expires_at.is_some_and(|e| e <= now) {
+        self.remove(i);              // expirare leneșă
+        return Lookup::Expired;
+    }
+    self.touch(i);                   // LRU: mută în cap; CLOCK: bit = 1; FIFO: nimic
+    Lookup::Hit(self.entry(i).value.clone())   // Bytes: clonare O(1), fără copiere
+}
+\end{code}
+
+Evacuarea CLOCK parcurge coada: intrările cu bitul de referință setat primesc a doua șansă. Bucla se
+termină după cel mult o trecere completă, deoarece fiecare intrare vizitată își pierde bitul.
+
+\begin{code}{Evacuarea unei intrări.}
+fn evict_one(&mut self) -> bool {
+    loop {
+        let t = self.tail;
+        if t == NIL { return false; }
+        if self.policy == Policy::Clock && self.entry(t).referenced {
+            self.entry_mut(t).referenced = false;   // a doua șansă
+            self.unlink(t);
+            self.push_front(t);
+            continue;
+        }
+        self.remove(t);
+        return true;
+    }
+}
+\end{code}
+
+Statisticile sunt contoare atomice (\texttt{AtomicU64} cu ordonare \texttt{Relaxed}), actualizate în
+afara secțiunii critice.
+
+\section{Nodul de cache și clientul}
+
+Serverul folosește un task tokio per conexiune. Bucla de tratare citește o linie de antet, apoi exact
+\texttt{len} octeți de payload, și scrie răspunsul într-un \texttt{BufWriter}; flush-ul se face doar
+când nu mai există comenzi în buffer. Erorile de protocol sunt raportate clientului fără a închide
+conexiunea; erorile de I/O închid conexiunea. Un janitor elimină periodic intrările expirate.
+
+Clientul păstrează un pool de conexiuni (\texttt{Mutex<Vec<BufStream<TcpStream>>>}); mutex-ul este
+ținut doar pentru \texttt{pop}/\texttt{push}, niciodată în timpul unui \texttt{await}. Cheile și tag-urile
+sunt validate la granița de încredere (fără spații sau virgule), iar valorile sunt limitate la 16 MiB pe
+server.
+
+\section{Aplicația web}
+
+\subsection{Backend-uri interschimbabile}
+
+Backend-urile sunt modelate ca \texttt{enum}, cu \emph{dispatch} static:
+
+\begin{code}{Backend-urile de cache (\texttt{crates/webapp/src/cache.rs}).}
+pub enum Backend {
+    None,
+    Local(Arc<Table>),                          // L1 în proces
+    Cluster(ClusterClient),                     // noduri cache-node
+    Redis(RedisConn),
+    PgMem(PgPool),                              // tabelă UNLOGGED pe tmpfs
+    Tiered { l1: Arc<Table>, l2: ClusterClient }, // near-cache
+}
+\end{code}
+
+Configurația activă (\texttt{Runtime}: backend + parametri) este ținută într-un
+\texttt{RwLock<Arc<Runtime>>}. Fiecare cerere clonează doar \texttt{Arc}-ul (o incrementare atomică), iar
+schimbarea modului înlocuiește atomic pointerul — cererile în curs își termină execuția pe vechea
+configurație.
+
+\subsection{Single-flight}
+
+\begin{code}{Single-flight cu \texttt{OnceCell} (\texttt{state.rs}, simplificat).}
+let (cell, leader) = {
+    let mut map = self.inflight.lock();
+    match map.get(key) {
+        Some(c) => (Arc::clone(c), false),
+        None => { let c = Arc::default(); map.insert(key.into(), Arc::clone(&c)); (c, true) }
+    }
+};
+let res = cell.get_or_init(move || async move { fetch.await }).await.clone();
+// Oricine termină curăță intrarea (leader-ul poate fi anulat de deconectarea clientului).
+let mut map = self.inflight.lock();
+if map.get(key).is_some_and(|c| Arc::ptr_eq(c, &cell)) { map.remove(key); }
+\end{code}
+
+Un detaliu important: dacă cererea „lider" este anulată (clientul închide conexiunea), \texttt{OnceCell}
+permite altei cereri să preia inițializarea, iar curățarea intrării este făcută de oricine termină —
+altfel cheia ar rămâne blocată pe un rezultat vechi.
+
+\subsection{API, documentație și interfață}
+
+Rutele sunt definite cu axum 0.8; documentația OpenAPI 3 este generată din cod cu \texttt{utoipa}
+(adnotări \texttt{\#[utoipa::path]} pe handlere și \texttt{ToSchema} pe tipuri) și servită prin Swagger UI
+la \texttt{/swagger-ui}. Răspunsurile includ antetul \texttt{X-Cache}. Interfața web (\texttt{/}) este o
+pagină statică inclusă în binar care permite schimbarea modului pe toate instanțele, afișează live rata de
+hit și operațiile pe secundă (Chart.js), conține un generator de trafic Zipf rulat în browser și un
+\emph{playground} pentru API.
+
+\subsection{Observabilitate}
+
+Un middleware măsoară latența fiecărei cereri într-o histogramă Prometheus etichetată cu ruta
+(\texttt{MatchedPath}), metoda și codul de stare. Alte metrici: lookup-uri hit/miss, interogări DB pe tip,
+erori ale backend-ului de cache și adâncimea cozii write-behind. Grafana este provizionată automat cu
+sursa de date și un dashboard cu șase panouri.
+
+\section{Optimizări}
+\label{sec:optimizari}
+
+Optimizările au fost ghidate de măsurători: o rulare scurtă (\texttt{scripts/profile.sh}) cu snapshot
+de consum CPU per container, iterată după fiecare modificare.
+\ifdefined\OptTable\OptTable\fi
+
+\paragraph{1. Profilare: baza de date era gâtul de sticlă.} Înainte de optimizare, PostgreSQL consuma
+$\approx$410\% din cele 500\% CPU disponibile, în timp ce fiecare instanță web consuma sub 20\%. Planul de
+execuție al clasamentului unei categorii arăta un \emph{Parallel Seq Scan} pe 100.000 de produse și 500 de
+accesări de heap pe \texttt{reviews} (7{,}6~ms).
+
+\paragraph{2. Tuning PostgreSQL.} (a) \texttt{max\_parallel\_workers\_per\_gather = 0}: pentru un
+volum OLTP mare, pornirea de workeri paraleli pentru fiecare interogare costă mai mult decât câștigă;
+(b) indecși acoperitori \texttt{reviews(product\_id) INCLUDE (rating)} și
+\texttt{products(category\_id) INCLUDE (id, name, price\_cents)} plus \texttt{VACUUM ANALYZE}, care
+permit \emph{index-only scans}. Interogarea a scăzut de la 7{,}6~ms la 1{,}5~ms.
+
+\paragraph{3. Calea fierbinte din aplicație.} Eliminarea \texttt{TraceLayer} (un span de tracing per
+cerere), contoare Prometheus pre-rezolvate (fără căutarea etichetelor la fiecare cerere), evitarea
+alocărilor în middleware, allocatorul \texttt{mimalloc} și reducerea pool-ului DB de la 32 la 16
+conexiuni per instanță (mai puțină contenție în PostgreSQL).
+
+\paragraph{4. \texttt{NOTIFY} condiționat.} Eșantionarea \texttt{pg\_stat\_activity} sub încărcare a arătat
+majoritatea sesiunilor de scriere blocate în \texttt{Lock:object}: o tranzacție care execută
+\texttt{NOTIFY} ține un lock global pe coada de notificări până după flush-ul WAL la commit, ceea ce
+serializează toate scrierile și anulează \emph{group commit}. Trigger-ul notifică acum doar dacă sesiunea
+nu a setat \texttt{app.notify = off}; aplicația setează valoarea (local tranzacției, prin
+\texttt{set\_config(\ldots, true)} în aceeași instrucțiune \texttt{UPDATE}) când backend-ul nu are L1.
+Scrierile externe continuă să fie notificate.
+
+\paragraph{5. Agregate materializate.} Chiar și după pașii anteriori PostgreSQL rămânea la
+$\approx$260\% CPU. Cauza: fiecare modificare de preț invalidează clasamentul categoriei; cu
+$\approx$2.200 de scrieri/s distribuite pe 200 de categorii, aproape orice cerere de clasament era un miss
+și recalcula un \texttt{JOIN} + \texttt{GROUP BY} de 1{,}5~ms. Media notelor și numărul de recenzii au
+devenit coloane în \texttt{products} (\texttt{rating\_avg}, \texttt{review\_count}), întreținute incremental
+de un trigger pe \texttt{reviews}, iar clasamentul folosește indexul
+\texttt{(category\_id, rating\_avg DESC, review\_count DESC, id)}: interogarea durează acum
+$\approx$0{,}09~ms (de 85 de ori mai puțin decât forma inițială). Citirea unui produs devine un lookup pe
+cheia primară, iar scrierea întoarce rândul actualizat prin \texttt{RETURNING} (o interogare în loc de două).
+Prețul nu este indexat și tabela are \texttt{fillfactor = 90}, deci actualizările de preț rămân
+\emph{HOT} (nu modifică indecșii).
+
+\paragraph{Rezultat.} Pe aceeași mașină, debitul cu cache local a crescut de la
+\R{opt/baseline/rps} la \R{opt/mat-local/rps} cereri/s, iar p99 a scăzut de la \R{opt/baseline/p99}~ms la
+\R{opt/mat-local/p99}~ms; varianta fără cache a crescut de la \R{opt/baseline-none/rps} la
+\R{opt/mat-none/rps} cereri/s. Cu cache, consumul PostgreSQL a scăzut de la $\approx$410\% la
+$\approx$60–100\% CPU; cei mai mari consumatori rămân nginx și generatorul de încărcare. Toate experimentele
+din \cref{ch:evaluare} folosesc versiunea finală.
+
+\section{Calitatea codului}
+
+\begin{itemize}
+  \item \textbf{Lint}: \texttt{clippy} cu grupurile \texttt{all} și \texttt{pedantic} la nivel de workspace,
+        rulat cu \texttt{-D warnings}; \texttt{unsafe\_code = "forbid"}.
+  \item \textbf{Formatare}: \texttt{rustfmt} (configurat în \texttt{rustfmt.toml}), \texttt{.editorconfig}.
+  \item \textbf{Dependențe}: \texttt{cargo-deny} (licențe, vulnerabilități, surse) prin \texttt{deny.toml}.
+  \item \textbf{Teste}: 19 teste unitare și de integrare (politici de evacuare, TTL, tag-uri,
+        concurență, echilibrul inelului, roundtrip client–server, cluster, simulator) și un test end-to-end
+        de coerență (\texttt{scripts/consistency.sh}) pentru toate cele 18 combinații backend × strategie.
+  \item \textbf{CI}: GitHub Actions rulează formatarea, clippy, testele, \texttt{cargo-deny} și
+        construirea imaginii Docker.
+\end{itemize}

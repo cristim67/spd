@@ -1,0 +1,176 @@
+\chapter{Arhitectura sistemului}
+\label{ch:arhitectura}
+
+\section{Vedere de ansamblu}
+
+\Cref{fig:arch} prezintă arhitectura de implementare. Toate componentele rulează ca containere
+Docker orchestrate cu Docker Compose, într-o rețea virtuală comună.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/arch}}
+  \caption{Arhitectura distribuită a sistemului.}
+  \label{fig:arch}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{lcX}
+\toprule
+Componentă & Instanțe & Rol \\
+\midrule
+\texttt{nginx} & 1 & load balancer HTTP (\texttt{least\_conn}, conexiuni keep-alive către backend) \\
+\texttt{webapp} & 2 & API REST (axum); cache L1 \texttt{memtable}; single-flight; write-behind; metrici \\
+\texttt{cache-node} & 3 & server TCP peste \texttt{memtable}; partiționare prin consistent hashing \\
+PostgreSQL & 1 & baza relațională — sursa de adevăr; trigger \texttt{NOTIFY} \\
+PostgreSQL in-memory & 1 & date pe \texttt{tmpfs}, \texttt{fsync=off}; tabela \texttt{UNLOGGED cache\_kv} \\
+Redis & 1 & cache de referință (\emph{baseline} industrial), fără persistență \\
+Prometheus, Grafana & 1+1 & colectare metrici (2 s) și dashboard provizionat automat \\
+\texttt{loadgen} & la cerere & generator de încărcare și benchmark-uri offline \\
+\bottomrule
+\end{tabularx}
+\caption{Componentele sistemului.}
+\end{table}
+
+\section{Organizarea codului}
+
+Proiectul este un \emph{workspace} Cargo cu patru crate-uri, cu dependențe aciclice:
+
+\begin{center}
+\begin{tikzpicture}[node distance=6mm and 12mm]
+  \node[comp, fill=c4!10] (m) {\texttt{memtable}\\[-1pt]\scriptsize bibliotecă};
+  \node[comp, fill=c2!12, above right=2mm and 14mm of m] (c) {\texttt{cache-node}\\[-1pt]\scriptsize lib + server};
+  \node[comp, fill=c3!12, right=14mm of c] (w) {\texttt{webapp}\\[-1pt]\scriptsize server HTTP};
+  \node[comp, fill=c6!10, below right=2mm and 14mm of m] (l) {\texttt{loadgen}\\[-1pt]\scriptsize CLI benchmark};
+  \draw[arr] (c) -- (m); \draw[arr] (w) -- (c); \draw[arr] (w.south) to[out=-150,in=10] (m.east); \draw[arr] (l) -- (m);
+\end{tikzpicture}
+\end{center}
+
+\begin{itemize}
+  \item \texttt{memtable} — motorul de tabele in-memory, fără dependențe de rețea; reutilizat de nodurile
+        de cache, de aplicație (L1) și de benchmark-uri.
+  \item \texttt{cache-node} — protocolul, serverul TCP, clientul cu pool de conexiuni, inelul de
+        consistent hashing și clientul de cluster.
+  \item \texttt{webapp} — aplicația web: rute, OpenAPI, backend-uri de cache, strategii, metrici, UI.
+  \item \texttt{loadgen} — încărcare HTTP, simulare de politici, scalabilitatea motorului.
+\end{itemize}
+
+\section{Motorul de tabele in-memory}
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.92\linewidth}{!}{\input{figures/memtable}}
+  \caption{Structura unei tabele \texttt{memtable}: shard-uri independente, fiecare cu un hash map,
+           o listă dublu înlănțuită intrusivă peste un slab și un index de tag-uri.}
+  \label{fig:memtable}
+\end{figure}
+
+O tabelă (\cref{fig:memtable}) este împărțită în $S$ shard-uri ($S$ putere a lui 2). Cheia este
+direcționată către shard prin $\text{hash}(k) \mathbin{\&} (S-1)$, iar fiecare shard este protejat de
+propriul mutex. În interiorul shard-ului:
+
+\begin{itemize}
+  \item intrările sunt stocate într-un \emph{slab} (\texttt{Vec<Slot>}); legăturile listei sunt indici
+        \texttt{u32}, nu pointeri — fără \texttt{unsafe}, cu localitate bună în cache-ul procesorului;
+  \item un \texttt{HashMap<cheie, index>} oferă căutare O(1);
+  \item lista dublu înlănțuită ordonează intrările pentru evacuare: capul este cea mai recentă, coada este
+        candidatul; toate operațiile (acces, inserare, ștergere, evacuare) sunt O(1);
+  \item indexul de tag-uri \texttt{HashMap<tag, \{index\}>} permite invalidarea unui grup de chei (de
+        exemplu toate clasamentele unei categorii) fără a parcurge tabela;
+  \item sloturile eliberate sunt reținute într-o listă liberă și refolosite (fără realocări).
+\end{itemize}
+
+Valorile sunt \texttt{bytes::Bytes} — buffere imutabile cu numărare de referințe, deci un hit nu copiază
+datele: același buffer ajunge direct în corpul răspunsului HTTP.
+
+\section{Cache-ul distribuit}
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{0.42\linewidth}\centering
+    \resizebox{\linewidth}{!}{\input{figures/ring}}
+    \caption{Inelul de consistent hashing.}
+    \label{fig:ring}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.54\linewidth}\centering\small
+    \begin{tabular}{@{}ll@{}}
+      \toprule
+      Comandă & Răspuns \\
+      \midrule
+      \texttt{GET k} & \texttt{\$len\textbackslash n bytes} / \texttt{\$-1} \\
+      \texttt{SET k ttl len [tags]} & \texttt{+OK} \\
+      \texttt{DEL k} & \texttt{:1} / \texttt{:0} \\
+      \texttt{TAG t} & \texttt{:n} \\
+      \texttt{STATS} & \texttt{\$len\textbackslash n json} \\
+      \texttt{CONFIG cap pol shards} & \texttt{+OK} \\
+      \bottomrule
+    \end{tabular}
+    \caption{Protocolul nodului (extras).}
+  \end{subfigure}
+  \caption{Partiționarea și protocolul cache-ului distribuit.}
+\end{figure}
+
+Nodurile nu comunică între ele: partiționarea este realizată în client. Fiecare nod fizic este plasat
+de 160 de ori pe un inel de $2^{64}$ poziții, folosind o funcție de dispersie stabilă (FNV-1a urmată de
+un finalizator \emph{splitmix64}). Căutarea nodului responsabil se face prin căutare binară în vectorul
+sortat al punctelor, în $O(\log(160n))$. Testele unitare verifică echilibrul (fiecare din 3 noduri
+primește între 27\% și 40\% din chei) și faptul că adăugarea unui al patrulea nod mută
+$\approx 25\%$ din chei.
+
+Protocolul este textual pentru antete și binar pentru valori (prefixate cu lungimea), deci poate
+transporta orice conținut. Serverul trimite răspunsurile (\emph{flush}) doar când bufferul de intrare
+s-a golit, ceea ce permite \emph{pipelining}: un client poate trimite mai multe comenzi fără să aștepte
+fiecare răspuns.
+
+\section{Fluxul unei cereri de citire}
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.95\linewidth}{!}{\input{figures/read-path}}
+  \caption{Citire cache-aside cu single-flight: două cereri concurente pentru aceeași cheie produc o
+           singură interogare SQL.}
+  \label{fig:readpath}
+\end{figure}
+
+La un miss, aplicația nu interoghează imediat baza de date: verifică într-o tabelă de „zboruri în
+curs" (\texttt{HashMap<cheie, Arc<OnceCell>>}) dacă o altă cerere încarcă deja aceeași cheie. Dacă da,
+așteaptă rezultatul acesteia (\cref{fig:readpath}). Mecanismul elimină \emph{cache stampede} la pornire
+sau după invalidarea unei chei fierbinți (experimentul E7).
+
+\section{Strategiile de scriere}
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\linewidth}{!}{\input{figures/write-strategies}}
+  \caption{Strategiile de scriere implementate.}
+  \label{fig:writes}
+\end{figure}
+
+Pentru write-behind (\cref{fig:writes}, dreapta), modificările sunt distribuite pe 4 benzi paralele după
+\texttt{id mod 4}. Toate modificările unui produs trec prin aceeași bandă, deci ordinea lor se păstrează.
+Fiecare bandă este un canal mărginit (25.000 de elemente), care oferă \emph{backpressure}: dacă baza de
+date nu ține pasul, cererile de scriere așteaptă în loc să acumuleze o coadă nelimitată. Workerul fiecărei
+benzi preia până la 1.024 de modificări deodată, le combină per produs (ultima scriere câștigă, pe câmp) și
+le aplică printr-un singur \texttt{UPDATE \ldots{} FROM unnest(\ldots)}. După flush, invalidarea
+clasamentelor categoriilor afectate rulează concurent, într-un task separat.
+La oprirea aplicației (SIGTERM), canalul este închis și golit complet înainte de terminarea procesului.
+
+\section{Coerența cache-urilor locale}
+
+Fiecare instanță are propriul L1. Un trigger \texttt{AFTER UPDATE} pe tabela \texttt{products} execută
+\texttt{pg\_notify} pe canalul \texttt{cache\_invalidation}, cu mesajul \texttt{id:categorie}; fiecare instanță ține o conexiune dedicată
+cu \texttt{LISTEN} și, la primirea notificării, șterge cheia produsului și tag-ul categoriei din L1.
+Avantajul major: și modificările făcute direct în baza de date (scripturi, alte aplicații) invalidează
+cache-ul. Pentru că \texttt{NOTIFY} serializează commit-urile (\cref{sec:optimizari}), aplicația îl
+suprimă (\texttt{app.notify = off}) când backend-ul activ nu are nivel local.
+
+\section{Reziliență}
+
+\begin{itemize}
+  \item \textbf{Degradare grațioasă}: orice eroare a backend-ului de cache este contorizată și cererea
+        continuă direct pe baza de date.
+  \item \textbf{Conexiuni}: clientul de nod reîncearcă o dată cu o conexiune nouă dacă o conexiune din pool
+        s-a închis (nod repornit); conectarea la baze de date se reîncearcă la pornire.
+  \item \textbf{Ascultătorul NOTIFY} se reconectează automat.
+  \item \textbf{Write-behind}: reîncercări cu \emph{backoff} exponențial (8 încercări) și golirea cozii la oprire.
+\end{itemize}

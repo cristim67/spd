@@ -1,0 +1,160 @@
+\documentclass[aspectratio=169,11pt]{beamer}
+\usetheme[progressbar=frametitle, numbering=fraction]{metropolis}
+\input{../docs/preamble}
+\usepackage{booktabs}
+\newcommand{\datadir}{../docs/data/}
+\InputIfFileExists{../docs/data/numbers.tex}{}{}
+\providecommand{\R}[1]{??}
+\setbeamercolor{progress bar}{fg=c1}
+\setbeamercolor{frametitle}{bg=black!85}
+\setbeamercolor{alerted text}{fg=c2}
+
+\title{Memory cache pentru aplicații web}
+\subtitle{Tabele in-memory + bază de date relațională — implementare distribuită în Rust și evaluarea performanțelor}
+\author{Cristi Miloiu}
+\institute{Proiect individual — aplicații paralele și distribuite}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{frame}{Problema}
+  \begin{columns}[T]
+    \column{0.55\textwidth}
+    \begin{itemize}
+      \item Magazin online: \alert{100k produse}, 500k recenzii, 200 de categorii în PostgreSQL
+      \item Trafic dominat de citiri (90–99\%), popularitate \alert{Zipf}
+      \item Fiecare citire = join + agregare în DB
+      \item Întrebarea: \emph{debit maxim, latență minimă, date corecte, memorie limitată, mai multe mașini?}
+    \end{itemize}
+    \column{0.42\textwidth}
+    \[ T_{\text{mediu}} = T_{\text{cache}} + (1-h)\,T_{\text{DB}} \]
+    \vspace{2mm}
+    \small Rata de hit $h$ domină: de la 90\% la 99\% = de 10× mai puține interogări DB.
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Secvențial vs. paralel și distribuit}
+  \centering\resizebox{0.85\linewidth}{!}{\input{../docs/figures/seq-vs-par}}
+\end{frame}
+
+\begin{frame}{Arhitectura}
+  \centering\resizebox{!}{0.82\textheight}{\input{../docs/figures/arch}}
+\end{frame}
+
+\begin{frame}{Motorul \texttt{memtable}}
+  \centering\resizebox{0.8\linewidth}{!}{\input{../docs/figures/memtable}}\\[2mm]
+  \footnotesize Shard-uri cu mutex propriu · slab + listă intrusivă · O(1) · LRU/FIFO/CLOCK · TTL · tag-uri
+\end{frame}
+
+\begin{frame}{Cache distribuit și citirea cu single-flight}
+  \begin{columns}[c]
+    \column{0.33\textwidth}\centering
+    \resizebox{\linewidth}{!}{\input{../docs/figures/ring}}\\[2mm]
+    \scriptsize consistent hashing, 160 noduri virtuale\\ protocol TCP propriu, pipelining
+    \column{0.65\textwidth}\centering
+    \resizebox{\linewidth}{!}{\input{../docs/figures/read-path}}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Strategii de scriere și coerență}
+  \centering\resizebox{0.95\linewidth}{!}{\input{../docs/figures/write-strategies}}
+  \vspace{3mm}
+  \begin{itemize}\small
+    \item Coerența L1 între instanțe: trigger PostgreSQL $\rightarrow$ \texttt{NOTIFY} $\rightarrow$ \texttt{LISTEN} în fiecare instanță
+    \item Test end-to-end: \alert{18/18} combinații backend × strategie coerente
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Șase backend-uri, comutabile la runtime}
+  \small
+  \begin{tabular}{ll}
+    \toprule
+    \texttt{none} & fără cache — baseline \\
+    \texttt{local} & \texttt{memtable} în proces (L1) \\
+    \texttt{cluster} & 3 noduri \texttt{cache-node}, consistent hashing \\
+    \texttt{tiered} & L1 local (TTL 5 s) + L2 cluster — near-cache \\
+    \texttt{redis} & Redis 8 — baseline industrial \\
+    \texttt{pgmem} & tabelă \texttt{UNLOGGED} în PostgreSQL pe \texttt{tmpfs} — „tabelă in-memory" relațională \\
+    \bottomrule
+  \end{tabular}
+  \vspace{4mm}
+
+  UI de control · Swagger/OpenAPI · Prometheus + Grafana · Docker Compose (11 servicii)
+\end{frame}
+
+\begin{frame}{Optimizări ghidate de profilare}
+  \small
+  \begin{enumerate}
+    \item Profilare: \alert{PostgreSQL la 410\% CPU}, aplicațiile sub 20\%
+    \item Fără paralelism intra-query + indecși acoperitori $\Rightarrow$ clasament 7,6 ms $\rightarrow$ 1,5 ms
+    \item Calea fierbinte: mimalloc, metrici pre-rezolvate, fără tracing per cerere
+    \item \texttt{NOTIFY} serializa toate commit-urile (\texttt{Lock:object}) $\Rightarrow$ notificare doar când există L1
+    \item Agregate materializate + index $\Rightarrow$ clasament \alert{0,09 ms}; PostgreSQL de la 410\% la $\approx$60–100\% CPU
+  \end{enumerate}
+  \vspace{2mm}
+  \begin{center}
+  \begin{tabular}{lrr}
+    \toprule
+    & înainte & după \\ \midrule
+    fără cache (cereri/s) & \R{opt/baseline-none/rps} & \R{opt/mat-none/rps} \\
+    cache local (cereri/s) & \R{opt/baseline/rps} & \R{opt/mat-local/rps} \\
+    cache local p99 (ms) & \R{opt/baseline/p99} & \R{opt/mat-local/p99} \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+\end{frame}
+
+\section{Rezultate experimentale}
+
+\begin{frame}{Metodologie}
+  \begin{itemize}
+    \item 5 vCPU (Docker Desktop), toate componentele pe aceeași mașină
+    \item \texttt{loadgen} propriu: closed-loop, Zipf, histograme HDR, 5 s încălzire + 15 s măsurare
+    \item Implicit: 64 clienți, 95\% citiri (10\% dintre ele clasamente), Zipf $s=0{,}99$
+    \item 8 experimente HTTP + 2 benchmark-uri offline; totul scriptat (\texttt{make bench})
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{E1 — comparația backend-urilor}
+  \centering\resizebox{0.95\linewidth}{!}{\input{../docs/figures/plot-e1}}
+\end{frame}
+
+\begin{frame}{E2 — asimetria Zipf (cache = 10\% din chei)}
+  \centering\resizebox{0.95\linewidth}{!}{\input{../docs/figures/plot-e2}}
+\end{frame}
+
+\begin{frame}{E3 — strategii de scriere}
+  \centering\resizebox{0.95\linewidth}{!}{\input{../docs/figures/plot-e3}}
+\end{frame}
+
+\begin{frame}{E4 — scalabilitate cu numărul de clienți}
+  \centering\resizebox{0.95\linewidth}{!}{\input{../docs/figures/plot-e4}}
+\end{frame}
+
+\begin{frame}{E5–E7 — scale-out, memorie agregată, stampede}
+  \centering\resizebox{0.98\linewidth}{!}{\input{../docs/figures/plot-e5e6e7}}
+\end{frame}
+
+\begin{frame}{E8 — costul CPU la debit fix}
+  \centering\resizebox{0.95\linewidth}{!}{\input{../docs/figures/plot-e8}}
+\end{frame}
+
+\begin{frame}{Politici de evacuare (simulare)}
+  \centering\resizebox{!}{0.85\textheight}{\input{../docs/figures/plot-sim}}
+\end{frame}
+
+\begin{frame}{Scalabilitatea motorului: fire × shard-uri}
+  \centering\resizebox{0.95\linewidth}{!}{\input{../docs/figures/plot-engine}}
+\end{frame}
+
+\begin{frame}{Concluzii}
+  \input{../docs/chapters/disc/conclusions-slide}
+\end{frame}
+
+\begin{frame}[standout]
+  Întrebări?\\[4mm]
+  \normalsize\texttt{make up} $\rightarrow$ \texttt{http://localhost:8080}
+\end{frame}
+
+\end{document}

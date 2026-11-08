@@ -1,0 +1,17 @@
+% E4 — scalabilitatea cu numărul de clienți.
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=17mm},
+    width=0.5\linewidth, height=55mm, xlabel={clienți concurenți}, xmode=log, log basis x=2,
+    xtick={1,4,16,64,256}, xticklabels={1,4,16,64,256}]
+  \nextgroupplot[ylabel={cereri / s}, ymin=0, legend pos=north west, title={\small (a) debit},
+      kticks]
+    \addplot[c6, mark=o, thick] table[x=label, y=none_throughput_rps, col sep=comma] {\datadir e4.csv};
+    \addplot table[x=label, y=local_throughput_rps, col sep=comma] {\datadir e4.csv};
+    \addplot table[x=label, y=cluster_throughput_rps, col sep=comma] {\datadir e4.csv};
+    \legend{none, local, cluster}
+  \nextgroupplot[ylabel={latență p99 (ms)}, ymode=log, legend pos=north west, title={\small (b) latență p99}]
+    \addplot[c6, mark=o, thick] table[x=label, y=none_p99_ms, col sep=comma] {\datadir e4.csv};
+    \addplot table[x=label, y=local_p99_ms, col sep=comma] {\datadir e4.csv};
+    \addplot table[x=label, y=cluster_p99_ms, col sep=comma] {\datadir e4.csv};
+\end{groupplot}
+\end{tikzpicture}

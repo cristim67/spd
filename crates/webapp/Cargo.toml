@@ -1,0 +1,31 @@
+[package]
+name = "webapp"
+description = "Web API (axum) with pluggable cache backends over PostgreSQL"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+memtable.workspace = true
+cache-node.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+axum = "0.8"
+mimalloc.workspace = true
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "macros"] }
+redis = { version = "0.27", default-features = false, features = ["tokio-comp", "connection-manager"] }
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
+prometheus = { version = "0.13", default-features = false }
+
+[lints]
+workspace = true

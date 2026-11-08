@@ -1,0 +1,33 @@
+% Arhitectura distribuită (docker compose).
+\begin{tikzpicture}
+  \node[comp, minimum width=32mm] (cli) at (0,0) {Clienți / \texttt{loadgen}\\[-1pt]\scriptsize Zipf, closed/open-loop};
+  \node[comp, minimum width=32mm, fill=c1!12] (lb) at (0,-1.6) {nginx\\[-1pt]\scriptsize least\_conn, keep-alive};
+  \node[comp, minimum width=34mm, minimum height=14mm, fill=c3!10] (a1) at (-2.4,-3.5) {\textbf{app1} (axum/tokio)\\[-1pt]\scriptsize L1 \texttt{memtable}\\[-2pt]\scriptsize single-flight · write-behind};
+  \node[comp, minimum width=34mm, minimum height=14mm, fill=c3!10] (a2) at (2.4,-3.5) {\textbf{app2} (axum/tokio)\\[-1pt]\scriptsize L1 \texttt{memtable}\\[-2pt]\scriptsize single-flight · write-behind};
+  \begin{scope}[on background layer]
+    \node[draw=c3, dashed, rounded corners, fit=(a1)(a2), inner sep=2.5mm] (apps) {};
+  \end{scope}
+  \node[note, anchor=south west] at (apps.north west) {instanțe web fără stare};
+  \draw[arr] (cli) -- (lb);
+  \draw[arr] (lb) -- (a1); \draw[arr] (lb) -- (a2);
+
+  % Backend-uri.
+  \node[comp, minimum width=15mm, fill=c2!12] (n1) at (-5.6,-6.4) {cache1};
+  \node[comp, minimum width=15mm, fill=c2!12] (n2) at (-3.9,-6.4) {cache2};
+  \node[comp, minimum width=15mm, fill=c2!12] (n3) at (-2.2,-6.4) {cache3};
+  \begin{scope}[on background layer]
+    \node[draw=c2, dashed, rounded corners, fit=(n1)(n3), inner sep=2mm] (ring) {};
+  \end{scope}
+  \node[note, below=1mm of ring] {cluster \texttt{cache-node}\\consistent hashing, TCP};
+  \node[comp, minimum width=15mm, fill=c5!10] (rd) at (0,-6.4) {Redis};
+  \node[store, fill=c4!10] (pm) at (2.1,-6.4) {PG in-mem\\[-2pt]\scriptsize tmpfs};
+  \node[store, minimum width=26mm, minimum height=13mm, fill=c1!10] (db) at (5.3,-6.4) {\textbf{PostgreSQL}\\[-2pt]\scriptsize sursa de adevăr};
+
+  \foreach \t/\c in {ring/c2, rd/c5, pm/c4, db/c1} {
+    \draw[arr, \c] (apps.south -| \t.north) -- (\t.north);
+  }
+  \draw[arr, dashed, c3] (db.east) to[out=60,in=0] node[note, right, pos=0.5] {LISTEN/NOTIFY\\invalidare L1} (apps.east);
+
+  \node[comp, minimum width=26mm, fill=c6!10] (obs) at (5.3,-1.6) {Prometheus\\[-1pt]+ Grafana};
+  \draw[arr, dotted] (obs.south) -- node[note, right] {/metrics} (obs.south |- apps.north);
+\end{tikzpicture}

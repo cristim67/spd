@@ -1,0 +1,59 @@
+\chapter{Tehnologii utilizate}
+\label{ch:tehnologii}
+
+\begin{table}[H]
+\centering\footnotesize
+\renewcommand{\arraystretch}{1.05}
+\begin{tabularx}{\linewidth}{@{}p{38mm}X@{}}
+\toprule
+Tehnologie & Utilizare și motivație \\
+\midrule
+\textbf{Rust} (ediția 2024) & limbaj de sistem cu siguranța memoriei garantată la compilare, fără
+  garbage collector (latențe predictibile), cu abstracții de cost zero. Sistemul de tipuri previne
+  \emph{data race}-urile: \texttt{Send}/\texttt{Sync} verifică la compilare ce poate fi partajat între fire. \\
+\textbf{tokio} & runtime asincron cu planificator \emph{work-stealing} pe mai multe fire: mii de conexiuni
+  concurente cu un număr mic de fire de sistem; primitive \texttt{mpsc}, \texttt{watch}, \texttt{OnceCell},
+  \texttt{JoinSet}. \\
+\textbf{axum} 0.8 & framework HTTP peste hyper/tower; extractori tipizați, middleware. \\
+\textbf{sqlx} 0.8 & driver PostgreSQL asincron, pool de conexiuni, \emph{prepared statements} memorate per
+  conexiune, \texttt{PgListener} pentru \texttt{LISTEN}. \\
+\textbf{redis-rs} & client Redis cu \texttt{ConnectionManager} (conexiune multiplexată, reconectare). \\
+\textbf{utoipa} + Swagger UI & specificație OpenAPI 3 generată din cod; documentație interactivă. \\
+\textbf{prometheus} & metrici în format text expuse la \texttt{/metrics}. \\
+\textbf{parking\_lot} & mutex-uri și RW-lock-uri mai mici și mai rapide decât cele din \texttt{std}. \\
+\textbf{bytes} & buffere imutabile cu numărare de referințe — valori partajate fără copiere. \\
+\textbf{mimalloc} & allocator global performant pentru alocări mici, concurente. \\
+\textbf{hdrhistogram}, \textbf{rand\_distr} & histograme de latență cu precizie fixă; distribuția Zipf. \\
+\textbf{reqwest} & client HTTP pentru generatorul de încărcare (pool keep-alive). \\
+\textbf{clap} & interfețe CLI cu configurare din variabile de mediu. \\
+\midrule
+\textbf{PostgreSQL 17} & baza relațională (sursa de adevăr): tranzacții, indecși acoperitori, trigger-e
+  PL/pgSQL, \texttt{LISTEN/NOTIFY}; a doua instanță cu tabelă \texttt{UNLOGGED} pe \texttt{tmpfs} ca
+  „tabelă in-memory" relațională \cite{pg}. \\
+\textbf{Redis 8} & cache in-memory de referință, \texttt{allkeys-lru}, fără persistență \cite{redis}. \\
+\textbf{nginx} & load balancer HTTP cu conexiuni keep-alive către instanțe. \\
+\textbf{Prometheus}, \textbf{Grafana} & monitorizare și vizualizare în timp real. \\
+\textbf{Docker}, \textbf{Docker Compose} & împachetare (imagine multi-stage, utilizator neprivilegiat) și
+  orchestrarea celor 12 containere; build-uri reproductibile (\texttt{Cargo.lock}, \texttt{--locked}). \\
+\textbf{Chart.js} & grafice live în interfața web. \\
+\textbf{GitHub Actions} & integrare continuă. \\
+\textbf{\LaTeX} (LuaLaTeX, TikZ, pgfplots, Beamer) & documentația și prezentarea; graficele sunt
+  generate direct din fișierele CSV ale experimentelor. \\
+\bottomrule
+\end{tabularx}
+\caption{Tehnologiile utilizate.}
+\end{table}
+
+\section{Alternative considerate}
+
+\begin{itemize}
+  \item \textbf{\texttt{dyn Trait} vs. \texttt{enum}} pentru backend-uri: \texttt{enum} evită alocarea unui
+        \texttt{Box<dyn Future>} per apel și dependența \texttt{async\_trait}; setul de backend-uri este închis.
+  \item \textbf{HTTP vs. protocol TCP propriu} pentru nodurile de cache: un protocol minimal
+        (în stilul RESP/memcached) are un cost de parsare mult mai mic decât HTTP și permite pipelining.
+  \item \textbf{\texttt{RwLock} vs. \texttt{Mutex}} în shard-uri: o citire LRU modifică lista, deci are
+        nevoie de acces exclusiv; un \texttt{RwLock} nu ar aduce beneficii și ar fi mai scump.
+  \item \textbf{MySQL \texttt{MEMORY} engine} ca tabelă in-memory: are blocare la nivel de tabelă și nu
+        suportă tipuri \texttt{BLOB/TEXT}; varianta PostgreSQL \texttt{UNLOGGED} pe \texttt{tmpfs} este
+        echivalentă ca idee și păstrează aceeași tehnologie cu sursa de adevăr.
+\end{itemize}

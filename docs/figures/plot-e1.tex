@@ -1,0 +1,20 @@
+% E1 — comparația backend-urilor.
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=17mm},
+    width=0.5\linewidth, height=55mm, ybar, xtick=data,
+    symbolic x coords={none,local,cluster,tiered,redis,pgmem},
+    x tick label style={rotate=35, anchor=east, font=\footnotesize}, enlarge x limits=0.1]
+  \nextgroupplot[ylabel={cereri / s}, bar width=8pt, ymin=0,
+      nodes near coords, nodes near coords style={font=\tiny, rotate=90, anchor=west},
+      point meta={\thisrow{rps}/1000}, nodes near coords={\pgfmathprintnumber[fixed,precision=1]{\pgfplotspointmeta}k},
+      kticks, ymax=88000,
+      title={\small (a) debit}]
+    \addplot[fill=c1!70, draw=c1] table[x=backend, y=rps, col sep=comma] {\datadir e1.csv};
+  \nextgroupplot[ylabel={latență (ms)}, ymode=log, bar width=5pt, log origin=infty,
+      legend style={at={(0.02,0.98)}, anchor=north west}, title={\small (b) latență}]
+    \addplot[fill=c3!70, draw=c3] table[x=backend, y=p50, col sep=comma] {\datadir e1.csv};
+    \addplot[fill=c2!70, draw=c2] table[x=backend, y=p95, col sep=comma] {\datadir e1.csv};
+    \addplot[fill=c5!70, draw=c5] table[x=backend, y=p99, col sep=comma] {\datadir e1.csv};
+    \legend{p50, p95, p99}
+\end{groupplot}
+\end{tikzpicture}

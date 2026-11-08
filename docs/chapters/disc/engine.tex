@@ -1,0 +1,17 @@
+\paragraph{Interpretare.} Pe un singur fir, motorul execută \R{eng/s64/1/mops} milioane de operații pe
+secundă ($\approx$100~ns per operație, incluzând dispersia cheii și blocarea mutex-ului). Cu \textbf{un singur
+shard}, adăugarea de fire \emph{reduce} debitul la \R{eng/s1/5/mops}~Mops la 5 fire. Toate firele se
+serializează pe același mutex, iar linia de cache a lock-ului „sare" între nuclee: este cazul extrem din
+legea lui Amdahl, cu partea serială $\approx 100\%$. Sharding-ul elimină acest efect: cu 64 de shard-uri,
+debitul crește la \R{eng/s64/5/mops}~Mops.
+
+Accelerarea rămâne însă modestă cu acces Zipf (\R{eng/s64/5/speedup}× la 5 fire), din cauza
+\textbf{cheilor fierbinți}. La $s = 0{,}99$, cea mai populară cheie primește $\approx$8\% din toate accesările,
+deci shard-ul ei și contorul de referințe al valorii ei devin puncte de serializare. Cu acces uniform,
+accelerarea urcă la \R{eng/s64unif/5/speedup}×. Echivalentul Amdahl este o fracțiune paralelizabilă de
+$\approx$75\% pentru acces uniform, față de $\approx$38\% pentru Zipf. Paradoxal, un fir singur este de două ori
+mai rapid cu Zipf decât cu acces uniform (\R{eng/s64/1/mops} față de \R{eng/s64unif/1/mops}~Mops): setul
+fierbinte încape în cache-urile procesorului. CLOCK câștigă până la 14\% față de LRU pe un fir (\R{eng/s64clock/1/mops} față de
+\R{eng/s64/1/mops}~Mops), pentru că o citire nu mai mută noduri în listă. Peste 5 fire nu există câștig suplimentar, fiindcă VM-ul are 5 nuclee.
+Problema cheilor fierbinți este cunoscută în sistemele reale \cite{memcache-fb} și se rezolvă prin replicarea
+lor sau printr-un L1 per fir.

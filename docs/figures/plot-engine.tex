@@ -1,0 +1,21 @@
+% Scalabilitatea motorului memtable.
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=17mm},
+    width=0.5\linewidth, height=58mm, xlabel={fire}, xtick={1,2,4,5,8}]
+  \nextgroupplot[ylabel={Mops / s}, ymin=0, ymax=19, title={\small (a) debit (LRU, Zipf 0{,}99)},
+      legend style={font=\scriptsize, at={(0.02,0.98)}, anchor=north west}, legend columns=2]
+    \addplot table[x=threads, y=s1_mops, col sep=comma] {\datadir engine.csv};
+    \addplot table[x=threads, y=s4_mops, col sep=comma] {\datadir engine.csv};
+    \addplot table[x=threads, y=s16_mops, col sep=comma] {\datadir engine.csv};
+    \addplot table[x=threads, y=s64_mops, col sep=comma] {\datadir engine.csv};
+    \legend{1 shard, 4 shard-uri, 16 shard-uri, 64 shard-uri}
+  \nextgroupplot[ylabel={accelerare $S(p)$}, ymin=0, ymax=8, title={\small (b) accelerare, 64 shard-uri},
+      legend style={font=\scriptsize, at={(0.02,0.98)}, anchor=north west}]
+    \addplot table[x=threads, y=s64_speedup, col sep=comma] {\datadir engine.csv};
+    \addplot table[x=threads, y=s64clock_speedup, col sep=comma] {\datadir engine.csv};
+    \addplot table[x=threads, y=s64unif_speedup, col sep=comma] {\datadir engine.csv};
+    \addplot[c5, mark=pentagon*, thick] table[x=threads, y=s1_speedup, col sep=comma] {\datadir engine.csv};
+    \addplot[c6, dashed, thick, domain=1:8, samples=9, mark=none] {min(x,5)};
+    \legend{{LRU, Zipf 0{,}99}, {CLOCK, Zipf 0{,}99}, LRU uniform, 1 shard (LRU), ideal}
+\end{groupplot}
+\end{tikzpicture}

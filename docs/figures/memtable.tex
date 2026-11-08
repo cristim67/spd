@@ -1,0 +1,30 @@
+% Structura internă a unei tabele memtable.
+\begin{tikzpicture}[
+  slot/.style={draw, minimum width=13mm, minimum height=7mm, font=\scriptsize, fill=white, align=center},
+  sh/.style={draw, rounded corners=2pt, minimum width=9mm, minimum height=6mm, font=\scriptsize, fill=c1!12}]
+  \node[comp, minimum width=26mm] (k) {\texttt{get("product:42")}};
+  \node[comp, right=8mm of k, minimum width=24mm, fill=c4!10] (h) {hash(key) \& (S$-$1)};
+  \draw[arr] (k) -- (h);
+  \foreach \i in {0,...,5} { \node[sh] (s\i) at ($(h.south)+(-3.3+1.32*\i,-1.2)$) {\ifnum\i=5 S$-$1\else\ifnum\i=4 …\else\i\fi\fi}; }
+  \draw[arr] (h.south) -- (s2.north);
+  \node[note, left=1mm of s0] {shard-uri\\(Mutex)};
+
+  % Detaliul unui shard.
+  \node[draw, rounded corners, fill=boxbg, minimum width=118mm, minimum height=38mm, below=7mm of s2.south, anchor=north] (box) {};
+  \node[font=\scriptsize\bfseries, anchor=north west] at (box.north west) {Shard 2};
+  \node[slot, fill=c3!20] (e1) at ($(box.west)+(20mm,2mm)$) {k$_7$\\v, ttl};
+  \node[slot, right=6mm of e1] (e2) {k$_{42}$\\v, ttl};
+  \node[slot, right=6mm of e2] (e3) {k$_3$\\v, ttl};
+  \node[slot, right=6mm of e3, fill=c5!15] (e4) {k$_{19}$\\v, ttl};
+  \foreach \a/\b in {e1/e2,e2/e3,e3/e4} {
+    \draw[arr, shorten >=1pt] ([yshift=1.2mm]\a.east) -- ([yshift=1.2mm]\b.west);
+    \draw[arr, shorten >=1pt] ([yshift=-1.2mm]\b.west) -- ([yshift=-1.2mm]\a.east);
+  }
+  \node[note, above=1mm of e1] {head (MRU)};
+  \node[note, above=1mm of e4] {tail → evacuare};
+  \node[draw, font=\scriptsize, align=left, fill=white, anchor=north west] (map) at ($(box.south west)+(3mm,13mm)$) {\texttt{HashMap<key, slot>}\\ căutare O(1)};
+  \node[draw, font=\scriptsize, align=left, fill=white, right=5mm of map] (tags) {\texttt{tags: HashMap<tag, \{slot\}>}\\ invalidare pe grup};
+  \node[draw, font=\scriptsize, align=left, fill=white, right=5mm of tags] (free) {\texttt{free: Vec<slot>}\\ reutilizare sloturi};
+  \draw[arr, densely dotted] (map.north) to[out=90,in=-90] (e2.south);
+  \node[note, below=1mm of box] {LRU: la acces, nodul se mută în cap · FIFO: nu se mută · CLOCK: bit de referință, „a doua șansă" la coadă};
+\end{tikzpicture}

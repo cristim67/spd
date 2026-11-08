@@ -1,0 +1,17 @@
+\paragraph{Interpretare.} Diferențele apar la proporții mari de scrieri. La 50\% scrieri, invalidarea păstrează
+doar \R{e3/invalidate/0.5/hit_ratio}\% hit-uri (fiecare scriere șterge o cheie fierbinte), iar debitul este
+\R{e3/invalidate/0.5/throughput_rps} cereri/s. Write-through ridică rata de hit la
+\R{e3/write-through/0.5/hit_ratio}\%. Write-behind atinge \R{e3/write-behind/0.5/throughput_rps} cereri/s
+(\R{e3/write-behind/0.5/hit_ratio}\% hit-uri) și reduce numărul de tranzacții la \R{e3/write-behind/0.5/tx1k} per
+1.000 de scrieri, față de $\approx$1.000 la strategiile sincrone. Câștigul vine din grupare (mai multe
+modificări într-un \texttt{UPDATE}) și din combinarea modificărilor repetate ale aceluiași produs fierbinte.
+
+La 95\% citiri strategiile converg, iar write-behind este chiar puțin mai lent. Loturile sunt mici (rata de
+scriere e redusă), deci gruparea aduce puțin, iar fiecare scriere plătește un \emph{read-modify-write} în cache.
+
+\paragraph{Lecție de proiectare: backlog-ul.} O primă versiune folosea un singur worker per instanță. Debitul
+măsurat era mai mare, dar la finalul rulării erau $\approx$181.000 de scrieri încă în coadă, golite în
+$\approx$5~s după oprirea încărcării. Sistemul confirma deci scrieri mai repede decât le putea persista. Am
+împărțit write-behind în 4 benzi paralele, partiționate după \texttt{id mod 4}, ceea ce păstrează ordinea
+modificărilor fiecărui produs. Cu ele coada rămâne goală la final, iar cifrele de mai sus reprezintă un debit
+\emph{sustenabil}. Fereastra de inconsistență dintre cache și baza de date este de ordinul unui lot (milisecunde).

@@ -1,0 +1,18 @@
+\paragraph{E5 — scale-out.} Pe o singură mașină cu 5 vCPU, a doua instanță web \emph{nu} crește debitul
+(\R{e5/cluster/1/throughput_rps} cereri/s cu o instanță, \R{e5/cluster/2/throughput_rps} cu două, backend
+cluster). O singură instanță tokio folosește deja toate nucleele, iar a doua concurează pentru aceleași
+resurse și adaugă conexiuni și coordonare. Rezultatul ilustrează legea lui Amdahl la nivel de sistem: scalarea
+orizontală aduce debit doar dacă adaugă resurse noi (mașini). Pe același hardware, beneficiul celei de-a doua
+instanțe este disponibilitatea: nginx redirecționează traficul dacă o instanță cade.
+
+\paragraph{E6 — memorie agregată.} Cu 10.000 de intrări pe nod, rata de hit crește de la
+\R{e6/cluster/1/hit_ratio}\% (1 nod) la \R{e6/cluster/2/hit_ratio}\% (2 noduri) și \R{e6/cluster/3/hit_ratio}\%
+(3 noduri), aproape de limitele teoretice pentru 10/20/30\% din chei
+(\R{sim/zipf/0.99/10/ideal}, \R{sim/zipf/0.99/20/ideal}, \R{sim/zipf/0.99/30/ideal}\%). Partiționarea prin
+consistent hashing face ca memoria nodurilor să se adune, nu să se dubleze. Debitul rămâne constant
+($\approx$\R{e6/cluster/3/throughput_rps} cereri/s), pentru că la doar citiri gâtul de sticlă este CPU-ul comun.
+
+\paragraph{E7 — cache stampede.} La pornirea la rece, cu o distribuție foarte asimetrică ($s = 1{,}4$),
+single-flight reduce interogările către baza de date de la \R{e7/false/db_reads} la \R{e7/true/db_reads}
+($-$29\%): \R{e7/true/coalesced} de cereri au fost servite de o interogare aflată deja în curs. Debitul crește de la
+\R{e7/false/throughput_rps} la \R{e7/true/throughput_rps} cereri/s.

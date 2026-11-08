@@ -1,0 +1,13 @@
+% E8 — CPU consumat la debit fix (8.000 cereri/s), pe roluri.
+\begin{tikzpicture}
+\begin{axis}[width=0.8\linewidth, height=60mm, ybar stacked, bar width=14pt, ymin=0,
+    symbolic x coords={none,local,cluster,tiered,redis,pgmem}, xtick=data,
+    ylabel={CPU (\% dintr-un nucleu)}, legend style={at={(1.02,1)}, anchor=north west},
+    enlarge x limits=0.12, reverse legend]
+  \addplot[fill=c3!70, draw=c3] table[x=backend, y=app, col sep=comma] {\datadir e8.csv};
+  \addplot[fill=c1!70, draw=c1] table[x=backend, y=db, col sep=comma] {\datadir e8.csv};
+  \addplot[fill=c2!70, draw=c2] table[x=backend, y=cache, col sep=comma] {\datadir e8.csv};
+  \addplot[fill=c6!35, draw=c6] table[x=backend, y=nginx, col sep=comma] {\datadir e8.csv};
+  \legend{aplicație, PostgreSQL, servere de cache, nginx}
+\end{axis}
+\end{tikzpicture}

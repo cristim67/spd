@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MemCache Lab</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --ink: #1d2330; --muted: #677085; --line: #e2e5ea;
+    --accent: #2f6fde; --ok: #1f9d63; --warn: #c98a10; --bad: #c8423b; --code: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111419; --panel: #1a1e25; --ink: #e6e9ef; --muted: #98a1b3; --line: #2a303a;
+      --accent: #6b9bff; --ok: #42c48a; --warn: #e3ab3c; --bad: #ef6a62; --code: #0f1216;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+           padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0; font-size: 18px; }
+  header nav a { color: var(--accent); margin-left: 14px; text-decoration: none; }
+  main { max-width: 1280px; margin: 0 auto; padding: 16px; display: grid; gap: 16px;
+         grid-template-columns: repeat(12, 1fr); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .card h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; } .span-6 { grid-column: span 6; } .span-4 { grid-column: span 4; }
+  @media (max-width: 900px) { .span-8, .span-6, .span-4 { grid-column: span 12; } }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .kpi { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .kpi .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi .l { color: var(--muted); font-size: 12px; }
+  form.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  input, select, button { font: inherit; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--line);
+                          background: var(--bg); color: var(--ink); min-width: 0; }
+  button { background: var(--accent); color: #fff; border: 0; cursor: pointer; font-weight: 600; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+  .badge.ok { color: var(--ok); border-color: var(--ok); } .badge.bad { color: var(--bad); border-color: var(--bad); }
+  .hit { color: var(--ok); font-weight: 700; } .miss { color: var(--warn); font-weight: 700; }
+  pre { background: var(--code); border-radius: 8px; padding: 10px; overflow: auto; max-height: 280px; margin: 8px 0 0; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .chart { position: relative; height: 220px; }
+  .muted { color: var(--muted); }
+  #msg { min-height: 1.4em; margin-top: 8px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MemCache Lab <span class="muted" style="font-weight:400">— cache in-memory pentru aplicații web</span></h1>
+  <nav>
+    <a href="/swagger-ui/" target="_blank" rel="noopener">Swagger</a>
+    <a id="grafana" href="#" target="_blank" rel="noopener">Grafana</a>
+    <a id="prom" href="#" target="_blank" rel="noopener">Prometheus</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card span-8">
+    <h2>Mod de funcționare (aplicat pe toate instanțele)</h2>
+    <form id="mode" class="grid">
+      <label>Backend
+        <select name="backend">
+          <option value="none">none — fără cache</option>
+          <option value="local" selected>local — memtable în proces</option>
+          <option value="cluster">cluster — noduri cache-node</option>
+          <option value="tiered">tiered — L1 local + L2 cluster</option>
+          <option value="redis">redis</option>
+          <option value="pgmem">pgmem — tabelă UNLOGGED</option>
+        </select></label>
+      <label>Strategie scriere
+        <select name="strategy">
+          <option value="invalidate">invalidate</option>
+          <option value="write-through">write-through</option>
+          <option value="write-behind">write-behind</option>
+        </select></label>
+      <label>Politică
+        <select name="policy"><option>lru</option><option>fifo</option><option>clock</option></select></label>
+      <label>Capacitate (intrări)<input name="capacity" type="number" min="1" value="200000"></label>
+      <label>TTL (s)<input name="ttl_secs" type="number" min="1" value="300"></label>
+      <label>Noduri cluster<input name="nodes" type="number" min="1" value="3"></label>
+      <label>Single-flight
+        <select name="coalesce"><option value="true">activ</option><option value="false">inactiv</option></select></label>
+      <button type="submit">Aplică</button>
+    </form>
+    <div id="msg" class="muted"></div>
+  </section>
+
+  <section class="card span-4">
+    <h2>Topologie</h2>
+    <div id="topo" class="muted">se încarcă…</div>
+  </section>
+
+  <section class="card span-12">
+    <h2>Indicatori (agregat pe instanțe, de la ultima schimbare de mod)</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="k-hr">–</div><div class="l">hit ratio</div></div>
+      <div class="kpi"><div class="v" id="k-lps">–</div><div class="l">lookup-uri cache / s</div></div>
+      <div class="kpi"><div class="v" id="k-dbr">–</div><div class="l">citiri DB / s</div></div>
+      <div class="kpi"><div class="v" id="k-dbw">–</div><div class="l">scrieri DB (total)</div></div>
+      <div class="kpi"><div class="v" id="k-co">–</div><div class="l">cereri coalescate</div></div>
+      <div class="kpi"><div class="v" id="k-wb">–</div><div class="l">coadă write-behind</div></div>
+      <div class="kpi"><div class="v" id="k-err">–</div><div class="l">erori cache</div></div>
+    </div>
+  </section>
+
+  <section class="card span-6"><h2>Hit ratio în timp</h2><div class="chart"><canvas id="c-hr"></canvas></div></section>
+  <section class="card span-6"><h2>Cache vs. bază de date (operații / s)</h2><div class="chart"><canvas id="c-ops"></canvas></div></section>
+
+  <section class="card span-6">
+    <h2>Generator de trafic (din browser)</h2>
+    <form id="load" class="grid">
+      <label>Clienți concurenți<input name="conc" type="number" min="1" max="64" value="16"></label>
+      <label>Durată (s)<input name="dur" type="number" min="1" value="20"></label>
+      <label>Zipf s<input name="zipf" type="number" step="0.01" min="0" value="0.99"></label>
+      <label>Citiri (%)<input name="reads" type="number" min="0" max="100" value="95"></label>
+      <button type="submit" id="load-btn">Pornește</button>
+    </form>
+    <p class="muted" style="margin:10px 0 0">Pentru măsurători riguroase folosește <code>loadgen</code> (vezi README); browserul limitează conexiunile paralele.</p>
+    <div class="kpis" style="margin-top:10px">
+      <div class="kpi"><div class="v" id="g-rps">–</div><div class="l">cereri / s (client)</div></div>
+      <div class="kpi"><div class="v" id="g-p50">–</div><div class="l">p50 (ms)</div></div>
+      <div class="kpi"><div class="v" id="g-p99">–</div><div class="l">p99 (ms)</div></div>
+      <div class="kpi"><div class="v" id="g-hit">–</div><div class="l">X-Cache HIT (%)</div></div>
+    </div>
+  </section>
+
+  <section class="card span-6">
+    <h2>Playground API</h2>
+    <div class="row">
+      <input id="pid" type="number" value="1" min="1" style="width:110px" aria-label="ID produs">
+      <button class="secondary" data-act="get">GET produs</button>
+      <input id="price" type="number" value="1999" min="0" style="width:110px" aria-label="Preț nou (bani)">
+      <button class="secondary" data-act="put">PUT preț</button>
+      <button class="secondary" data-act="top">Top categorie</button>
+    </div>
+    <div id="pg-meta" class="muted" style="margin-top:8px"></div>
+    <pre id="pg-out">—</pre>
+  </section>
+
+  <section class="card span-12">
+    <h2>Per instanță</h2>
+    <table><thead><tr><th>Instanță</th><th>Backend</th><th>Strategie</th><th>Hits</th><th>Misses</th><th>Hit ratio</th><th>Citiri DB</th><th>Scrieri DB</th><th>L1 / noduri</th></tr></thead>
+    <tbody id="inst"></tbody></table>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const fmt = (n, d = 0) => Number.isFinite(n) ? n.toLocaleString("ro-RO", { maximumFractionDigits: d, minimumFractionDigits: d }) : "–";
+let instances = [""];
+
+$("#grafana").href = `${location.protocol}//${location.hostname}:3000`;
+$("#prom").href = `${location.protocol}//${location.hostname}:9090`;
+
+async function json(url, opts) {
+  const r = await fetch(url, opts);
+  const body = await r.text();
+  if (!r.ok) throw new Error(`${r.status} ${body}`);
+  return body ? JSON.parse(body) : null;
+}
+
+async function loadInfo() {
+  try {
+    const info = await json("/admin/info");
+    instances = info.instances.length ? info.instances : [""];
+    const b = (ok, t) => `<span class="badge ${ok ? "ok" : "bad"}">${t}</span>`;
+    $("#topo").innerHTML = `
+      <div style="margin-bottom:6px">Instanțe: ${instances.map((i) => b(true, i || info.instance)).join(" ")}</div>
+      <div style="margin-bottom:6px">Noduri cache: ${info.cache_nodes.map((n) => b(true, n)).join(" ") || b(false, "niciunul")}</div>
+      <div>${b(info.redis, "Redis")} ${b(info.pgmem, "PG in-memory")} ${b(true, "PostgreSQL")}</div>`;
+    $("#mode [name=nodes]").max = Math.max(1, info.cache_nodes.length);
+  } catch (e) { $("#topo").textContent = "eroare: " + e.message; }
+}
+
+$("#mode").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = new FormData(ev.target);
+  const cfg = {
+    backend: f.get("backend"), strategy: f.get("strategy"), policy: f.get("policy"),
+    capacity: +f.get("capacity"), ttl_secs: +f.get("ttl_secs"), nodes: +f.get("nodes"),
+    coalesce: f.get("coalesce") === "true",
+  };
+  $("#msg").textContent = "se aplică…";
+  try {
+    await Promise.all(instances.map((p) => json(`${p}/admin/mode`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(cfg) })));
+    $("#msg").textContent = `aplicat pe ${instances.length} instanțe: ${cfg.backend} / ${cfg.strategy}`;
+    prev = null;
+  } catch (e) { $("#msg").textContent = "eroare: " + e.message; }
+});
+
+// --- Grafice -------------------------------------------------------------
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const baseOpts = (yMax) => ({
+  animation: false, responsive: true, maintainAspectRatio: false,
+  interaction: { mode: "index", intersect: false },
+  scales: { x: { ticks: { color: css("--muted"), maxTicksLimit: 6 }, grid: { color: css("--line") } },
+            y: { min: 0, max: yMax, ticks: { color: css("--muted") }, grid: { color: css("--line") } } },
+  plugins: { legend: { labels: { color: css("--ink"), boxWidth: 12 } } },
+});
+const N = 120;
+const line = (label, color) => ({ label, data: [], borderColor: color, backgroundColor: color, pointRadius: 0, borderWidth: 2, tension: .25 });
+const hrChart = new Chart($("#c-hr"), { type: "line", data: { labels: [], datasets: [line("hit ratio", css("--ok"))] }, options: baseOpts(1) });
+const opsChart = new Chart($("#c-ops"), { type: "line",
+  data: { labels: [], datasets: [line("hits / s", css("--ok")), line("misses / s", css("--warn")), line("citiri DB / s", css("--bad"))] },
+  options: baseOpts(undefined) });
+function push(chart, label, values) {
+  chart.data.labels.push(label);
+  values.forEach((v, i) => chart.data.datasets[i].data.push(v));
+  if (chart.data.labels.length > N) { chart.data.labels.shift(); chart.data.datasets.forEach((d) => d.data.shift()); }
+  chart.update();
+}
+
+// --- Polling statistici ----------------------------------------------------
+let prev = null;
+async function poll() {
+  try {
+    const all = await Promise.all(instances.map((p) => json(`${p}/admin/stats`)));
+    const sum = (k) => all.reduce((a, s) => a + s.counters[k], 0);
+    const now = performance.now();
+    const cur = { t: now, hits: sum("hits"), misses: sum("misses"), db_reads: sum("db_reads") };
+    const hr = cur.hits + cur.misses ? cur.hits / (cur.hits + cur.misses) : 0;
+    $("#k-hr").textContent = fmt(hr * 100, 1) + "%";
+    $("#k-dbw").textContent = fmt(sum("db_writes"));
+    $("#k-co").textContent = fmt(sum("coalesced"));
+    $("#k-err").textContent = fmt(sum("cache_errors"));
+    $("#k-wb").textContent = fmt(all.reduce((a, s) => a + s.write_behind_pending, 0));
+    if (prev && cur.hits >= prev.hits) {
+      const dt = (now - prev.t) / 1000;
+      const h = (cur.hits - prev.hits) / dt, m = (cur.misses - prev.misses) / dt, d = (cur.db_reads - prev.db_reads) / dt;
+      $("#k-lps").textContent = fmt(h + m);
+      $("#k-dbr").textContent = fmt(d);
+      const label = new Date().toLocaleTimeString("ro-RO");
+      push(hrChart, label, [h + m > 0 ? h / (h + m) : null]);
+      push(opsChart, label, [h, m, d]);
+    }
+    prev = cur;
+    $("#inst").innerHTML = all.map((s) => {
+      const b = s.backend || {};
+      const extra = [b.l1 ? `L1: ${fmt(b.l1.len)}` : "", ...(b.nodes || []).map((n) => `${n.node}: ${fmt(n.stats.len)}`)].filter(Boolean).join(" · ");
+      return `<tr><td>${s.instance}</td><td>${s.mode.backend}</td><td>${s.mode.strategy}</td>
+        <td>${fmt(s.counters.hits)}</td><td>${fmt(s.counters.misses)}</td><td>${fmt(s.counters.hit_ratio * 100, 1)}%</td>
+        <td>${fmt(s.counters.db_reads)}</td><td>${fmt(s.counters.db_writes)}</td><td class="muted">${extra || "–"}</td></tr>`;
+    }).join("");
+    const m = all[0]?.mode;
+    if (m && !document.activeElement?.closest("#mode")) {
+      for (const k of ["backend", "strategy", "policy", "capacity", "ttl_secs"]) $(`#mode [name=${k}]`).value = m[k];
+      $("#mode [name=coalesce]").value = String(m.coalesce);
+    }
+  } catch (e) { $("#msg").textContent = "statistici indisponibile: " + e.message; }
+}
+
+// --- Generator de trafic (Zipf prin CDF + căutare binară) ------------------
+function zipfSampler(n, s) {
+  const cdf = new Float64Array(n);
+  let acc = 0;
+  for (let i = 0; i < n; i++) { acc += 1 / Math.pow(i + 1, s); cdf[i] = acc; }
+  return () => {
+    const u = Math.random() * acc;
+    let lo = 0, hi = n - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (cdf[mid] < u) lo = mid + 1; else hi = mid; }
+    return lo + 1;
+  };
+}
+let running = false;
+$("#load").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (running) { running = false; return; }
+  const f = new FormData(ev.target);
+  const conc = +f.get("conc"), dur = +f.get("dur") * 1000, reads = +f.get("reads") / 100;
+  const pick = zipfSampler(100000, +f.get("zipf")), pickCat = zipfSampler(200, +f.get("zipf"));
+  running = true;
+  $("#load-btn").textContent = "Oprește";
+  const lat = []; let hits = 0, done = 0;
+  const end = performance.now() + dur, start = performance.now();
+  const tick = setInterval(() => {
+    const sorted = lat.slice(-5000).sort((a, b) => a - b);
+    const q = (p) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] : NaN;
+    $("#g-rps").textContent = fmt(done / ((performance.now() - start) / 1000));
+    $("#g-p50").textContent = fmt(q(.5), 2);
+    $("#g-p99").textContent = fmt(q(.99), 2);
+    $("#g-hit").textContent = fmt(done ? hits / done * 100 : NaN, 1);
+  }, 500);
+  async function client() {
+    while (running && performance.now() < end) {
+      const t0 = performance.now();
+      let r;
+      try {
+        if (Math.random() < reads) {
+          r = Math.random() < 0.1 ? await fetch(`/api/categories/${pickCat()}/top`) : await fetch(`/api/products/${pick()}`);
+        } else {
+          r = await fetch(`/api/products/${pick()}`, { method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ price_cents: Math.floor(Math.random() * 100000) }) });
+        }
+        await r.arrayBuffer();
+        lat.push(performance.now() - t0); done++;
+        if (r.headers.get("x-cache") === "HIT") hits++;
+      } catch { /* continuăm */ }
+    }
+  }
+  await Promise.all(Array.from({ length: conc }, client));
+  clearInterval(tick); running = false; $("#load-btn").textContent = "Pornește";
+});
+
+// --- Playground ------------------------------------------------------------
+document.querySelectorAll("[data-act]").forEach((btn) => btn.addEventListener("click", async () => {
+  const id = $("#pid").value, act = btn.dataset.act;
+  const t0 = performance.now();
+  let r;
+  if (act === "get") r = await fetch(`/api/products/${id}`);
+  else if (act === "put") r = await fetch(`/api/products/${id}`, { method: "PUT", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ price_cents: +$("#price").value }) });
+  else {
+    const p = await (await fetch(`/api/products/${id}`)).json();
+    r = await fetch(`/api/categories/${p.category_id}/top?limit=5`);
+  }
+  const ms = performance.now() - t0, text = await r.text(), xc = r.headers.get("x-cache") || "–";
+  $("#pg-meta").innerHTML = `HTTP ${r.status} · X-Cache: <span class="${xc === "HIT" ? "hit" : "miss"}">${xc}</span> · ${fmt(ms, 2)} ms`;
+  try { $("#pg-out").textContent = JSON.stringify(JSON.parse(text), null, 2); } catch { $("#pg-out").textContent = text; }
+}));
+
+loadInfo().then(() => { poll(); setInterval(poll, 1000); });
+</script>
+</body>
+</html>

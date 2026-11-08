@@ -1,0 +1,10 @@
+\small
+\begin{itemize}
+  \item \alert{Întâi baza de date, apoi cache-ul}: \R{opt/baseline/rps} $\rightarrow$ \R{opt/mat-local/rps} cereri/s, p99 \R{opt/baseline/p99} $\rightarrow$ \R{opt/mat-local/p99} ms
+  \item Cache local: \R{e1/local/speedup}× debit față de DB optimizat, $-$27\% CPU per cerere
+  \item Cache partajat (cluster, Redis): hit mai mare, coerență mai ieftină; prag de rentabilitate (E2)
+  \item Tabela in-memory în SGBD (\texttt{pgmem}): \alert{mai lentă decât DB-ul} pentru date deja în RAM
+  \item Write-behind: debit maxim, de câteva ori mai puține tranzacții, consistență eventuală
+  \item Sharding: de la colaps (1 shard) la scalare; cheile fierbinți limitează accelerarea
+  \item Single-flight: $-$29\% interogări la pornirea la rece; coerență 18/18
+\end{itemize}

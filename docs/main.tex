@@ -1,0 +1,136 @@
+\documentclass[11pt,a4paper,oneside]{report}
+\input{preamble}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{microtype}
+\usepackage{booktabs,tabularx,array}
+\usepackage{caption,subcaption}
+\usepackage{float,placeins}
+\usepackage{enumitem}
+\usepackage{listings}% doar pentru tipul de float/caption „Listing”
+\usepackage{fancyvrb}
+% fancyvrb suportă UTF-8 în LuaLaTeX (listings reordonează diacriticele).
+\newenvironment{code}[1]{%
+  \par\def\codecap{#1}\ifx\codecap\empty\else\captionof{lstlisting}{#1}\fi
+  \VerbatimEnvironment
+  \begin{tcolorbox}[colback=codebg, colframe=gray!30, boxrule=0.4pt, arc=1pt, left=3pt, right=3pt, top=1pt, bottom=1pt]
+  \begin{Verbatim}[fontsize=\footnotesize]}
+  {\end{Verbatim}\end{tcolorbox}}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage[most]{tcolorbox}
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink]{cleveref}
+% cleveref nu are traducere în română.
+\crefname{chapter}{capitolul}{capitolele}\Crefname{chapter}{Capitolul}{Capitolele}
+\crefname{section}{secțiunea}{secțiunile}\Crefname{section}{Secțiunea}{Secțiunile}
+\crefname{figure}{figura}{figurile}\Crefname{figure}{Figura}{Figurile}
+\crefname{table}{tabelul}{tabelele}\Crefname{table}{Tabelul}{Tabelele}
+\crefname{equation}{relația}{relațiile}\Crefname{equation}{Relația}{Relațiile}
+\crefname{appendix}{anexa}{anexele}\Crefname{appendix}{Anexa}{Anexele}
+\crefname{lstlisting}{listingul}{listingurile}\Crefname{lstlisting}{Listingul}{Listingurile}
+
+\setmainfont{Latin Modern Roman}
+\setmonofont{Latin Modern Mono}[Scale=0.95]
+\setlist{itemsep=2pt, topsep=4pt}
+\captionsetup{font=small, labelfont=bf}
+\titleformat{\chapter}[hang]{\Huge\bfseries}{\thechapter\hspace{12pt}\textcolor{c1}{|}\hspace{12pt}}{0pt}{\Huge\bfseries}
+\pagestyle{fancy}\fancyhf{}\fancyhead[L]{\small\leftmark}\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+
+\definecolor{codebg}{HTML}{F6F8FA}
+\lstdefinelanguage{Rust}{
+  keywords={fn,let,mut,pub,struct,enum,impl,match,if,else,for,in,while,loop,return,async,await,move,use,mod,crate,self,Self,where,trait,type,const,static,as,ref,Some,None,Ok,Err,true,false},
+  sensitive=true, comment=[l]{//}, morestring=[b]"}
+\lstset{basicstyle=\ttfamily\footnotesize, backgroundcolor=\color{codebg}, frame=single, rulecolor=\color{gray!30},
+  keywordstyle=\color{c1}\bfseries, commentstyle=\color{c3}\itshape, stringstyle=\color{c2},
+  breaklines=true, columns=fullflexible, keepspaces=true, xleftmargin=4pt, xrightmargin=4pt}
+
+\newtcolorbox{ideea}[1][]{colback=c1!5, colframe=c1!60, fonttitle=\bfseries\small, title={#1}, boxrule=0.6pt, arc=2pt}
+
+% Date de identificare — completează după caz.
+\newcommand{\Universitate}{Universitatea \textit{(de completat)}}
+\newcommand{\Facultate}{Facultatea \textit{(de completat)}}
+\newcommand{\Program}{Master — Proiect individual: aplicații paralele și distribuite}
+\newcommand{\Autor}{Cristi Miloiu}
+
+\newcommand{\datadir}{data/}
+% Rezultatele experimentale (generate de scripts/plots_data.py din results/*.csv).
+\InputIfFileExists{data/numbers.tex}{}{}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  {\large \Universitate\\ \Facultate\\[2pt] \Program\par}
+  \vspace{3.2cm}
+  {\Huge\bfseries Aplicație de tip memory cache\\[4pt] pentru aplicații web\par}
+  \vspace{0.8cm}
+  {\Large Implementare folosind tabele in-memory și o bază de date relațională.\\ Evaluarea performanțelor\par}
+  \vspace{1.6cm}
+  \begin{tikzpicture}[scale=0.75, transform shape]
+    \node[comp, fill=c3!12] (a) {aplicație};
+    \node[comp, fill=c2!12, right=8mm of a] (c) {cache in-memory};
+    \node[store, fill=c1!12, right=8mm of c] (d) {SQL};
+    \draw[darr] (a) -- (c); \draw[arr, dashed] (c) -- node[note, above] {miss} (d);
+  \end{tikzpicture}
+  \vfill
+  {\large Document de analiză și proiectare\par}
+  \vspace{0.4cm}
+  {\large Student: \Autor\par}
+  \vspace{0.3cm}
+  {\large \today\par}
+\end{titlepage}
+
+\begin{abstract}
+\noindent
+Lucrarea prezintă proiectarea, implementarea și evaluarea experimentală a unui sistem de cache in-memory
+pentru aplicații web, scris integral în Rust. Componenta centrală este \texttt{memtable}, un motor de
+tabele in-memory cu \emph{sharding}, politici de evacuare LRU/FIFO/CLOCK, expirare TTL și invalidare pe
+etichete. Motorul este folosit atât în procesul aplicației (cache local L1), cât și într-un cluster de
+noduri distribuite, adresate prin \emph{consistent hashing}. Sursa de adevăr este o bază de date
+relațională PostgreSQL; coerența cache-urilor locale ale mai multor instanțe se obține prin
+mecanismul \texttt{LISTEN/NOTIFY}. Aplicația web (axum + tokio) permite comutarea la runtime între șase
+backend-uri (fără cache, local, cluster, near-cache pe două niveluri, Redis și o tabelă
+\texttt{UNLOGGED} într-un PostgreSQL ținut în RAM) și trei strategii de scriere (invalidare,
+write-through, write-behind), ceea ce face posibilă compararea lor în condiții identice. Întregul sistem
+— două instanțe web în spatele unui load balancer, trei noduri de cache, Redis, două servere
+PostgreSQL, Prometheus și Grafana — rulează cu Docker Compose. Evaluarea cuprinde opt experimente
+HTTP și două benchmark-uri offline, care măsoară debitul, latența (p50/p95/p99), rata de hit,
+scalabilitatea cu numărul de fire, de clienți, de instanțe și de noduri, precum și efectul protecției
+împotriva \emph{cache stampede}.
+\end{abstract}
+
+\tableofcontents
+
+\input{chapters/01-introducere}
+\input{chapters/02-fundamente}
+\input{chapters/03-analiza}
+\input{chapters/04-arhitectura}
+\input{chapters/05-implementare}
+\input{chapters/06-tehnologii}
+\input{chapters/07-evaluare}
+\input{chapters/08-concluzii}
+
+\begin{thebibliography}{99}
+\addcontentsline{toc}{chapter}{Bibliografie}
+\bibitem{hennessy} J.~L. Hennessy, D.~A. Patterson. \emph{Computer Architecture: A Quantitative Approach}, ed.~6, Morgan Kaufmann, 2017.
+\bibitem{karger} D.~Karger et al. \emph{Consistent Hashing and Random Trees: Distributed Caching Protocols for Relieving Hot Spots on the World Wide Web}. STOC, 1997.
+\bibitem{memcache-fb} R.~Nishtala et al. \emph{Scaling Memcache at Facebook}. NSDI, 2013.
+\bibitem{breslau} L.~Breslau, P.~Cao, L.~Fan, G.~Phillips, S.~Shenker. \emph{Web Caching and Zipf-like Distributions: Evidence and Implications}. INFOCOM, 1999.
+\bibitem{corbato} F.~J. Corbató. \emph{A Paging Experiment with the Multics System}. MIT Project MAC, 1968 (algoritmul CLOCK).
+\bibitem{megiddo} N.~Megiddo, D.~Modha. \emph{ARC: A Self-Tuning, Low Overhead Replacement Cache}. FAST, 2003.
+\bibitem{belady} L.~A. Belady. \emph{A Study of Replacement Algorithms for a Virtual-Storage Computer}. IBM Systems Journal, 5(2), 1966.
+\bibitem{amdahl} G.~M. Amdahl. \emph{Validity of the Single Processor Approach to Achieving Large Scale Computing Capabilities}. AFIPS, 1967.
+\bibitem{little} J.~D.~C. Little. \emph{A Proof for the Queuing Formula $L = \lambda W$}. Operations Research, 9(3), 1961.
+\bibitem{brewer} E.~Brewer. \emph{CAP Twelve Years Later: How the „Rules" Have Changed}. IEEE Computer, 45(2), 2012.
+\bibitem{tene} G.~Tene. \emph{How NOT to Measure Latency}. Strange Loop, 2015 (HdrHistogram, coordinated omission).
+\bibitem{pg} The PostgreSQL Global Development Group. \emph{PostgreSQL 17 Documentation} — \texttt{UNLOGGED} tables, \texttt{LISTEN}/\texttt{NOTIFY}. \url{https://www.postgresql.org/docs/17/}
+\bibitem{redis} Redis Ltd. \emph{Redis Documentation — Key eviction}. \url{https://redis.io/docs/}
+\bibitem{tokio} Tokio Contributors. \emph{Tokio: An asynchronous Rust runtime}. \url{https://tokio.rs}
+\bibitem{rustbook} S.~Klabnik, C.~Nichols. \emph{The Rust Programming Language}. No Starch Press, 2023.
+\end{thebibliography}
+
+\appendix
+\input{chapters/A-rulare}
+
+\end{document}

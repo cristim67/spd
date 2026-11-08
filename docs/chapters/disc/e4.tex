@@ -1,0 +1,12 @@
+\paragraph{Interpretare.} Cu un singur client, adică execuția secvențială, sistemul servește
+\R{e4/none/1/throughput_rps} cereri/s fără cache și \R{e4/local/1/throughput_rps} cu cache local, la o latență
+mediană de numai \R{e4/local/1/p50_ms}~ms. Debitul crește aproape liniar cu concurența, conform legii lui Little
+($\lambda = L/W$ cu $W$ aproape constant), până la saturarea CPU-ului. Maximul este de
+\R{e4/local/64/throughput_rps} cereri/s pentru cache-ul local la 64 de clienți (de $\approx$9× față de
+secvențial) și de \R{e4/none/128/throughput_rps} pentru baza de date la 128 de clienți.
+
+După saturare, debitul nu mai crește, iar clienții suplimentari doar așteaptă la coadă: latența p99 crește
+proporțional cu concurența (\R{e4/none/256/p99_ms}~ms fără cache la 256 de clienți). Debitul chiar scade ușor
+din cauza contenției (comutări de context, lock-uri în PostgreSQL). De la 16 clienți în sus, ambele cache-uri
+păstrează p99 sub varianta fără cache. La concurență mică, clusterul are p99 ușor mai mare
+(\R{e4/cluster/1/p99_ms} față de \R{e4/none/1/p99_ms}~ms la un client), pentru că adaugă o ședere în rețea.

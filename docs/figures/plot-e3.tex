@@ -1,0 +1,17 @@
+% E3 — strategii de scriere.
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=17mm},
+    width=0.5\linewidth, height=55mm, xlabel={proporția de citiri}, xtick={0.5,0.8,0.95}]
+  \nextgroupplot[ylabel={cereri / s}, ymin=0, legend pos=south east, title={\small (a) debit},
+      kticks]
+    \addplot table[x=label, y=invalidate_throughput_rps, col sep=comma] {\datadir e3.csv};
+    \addplot table[x=label, y=write-through_throughput_rps, col sep=comma] {\datadir e3.csv};
+    \addplot table[x=label, y=write-behind_throughput_rps, col sep=comma] {\datadir e3.csv};
+    \legend{invalidate, write-through, write-behind}
+  \nextgroupplot[ylabel={tranzacții DB / 1000 scrieri}, ymode=log, ymin=150, ymax=1300, ytick={200,300,500,1000}, log ticks with fixed point,
+      title={\small (b) scrieri în DB}]
+    \addplot table[x=label, y=invalidate_tx_per_1k, col sep=comma] {\datadir e3.csv};
+    \addplot table[x=label, y=write-through_tx_per_1k, col sep=comma] {\datadir e3.csv};
+    \addplot table[x=label, y=write-behind_tx_per_1k, col sep=comma] {\datadir e3.csv};
+\end{groupplot}
+\end{tikzpicture}

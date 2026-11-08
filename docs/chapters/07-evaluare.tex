@@ -1,0 +1,164 @@
+\chapter{Evaluarea performanțelor}
+\label{ch:evaluare}
+
+\section{Metodologie}
+
+\paragraph{Mediu.} Toate componentele rulează pe aceeași mașină, într-un VM Docker Desktop cu
+\textbf{5 vCPU} (Apple Silicon, arm64). Generatorul de încărcare, nginx, cele două instanțe, nodurile de
+cache și bazele de date concurează pentru aceleași nuclee, deci rezultatele absolute sunt specifice
+acestui mediu. Comparațiile între configurații sunt însă relevante, pentru că au fost obținute în
+condiții identice.
+
+\paragraph{Sarcina de lucru.} Generatorul \texttt{loadgen} rulează în rețeaua Docker și trimite cereri
+prin nginx. Implicit folosește 64 de clienți \emph{closed-loop} (fiecare trimite cererea următoare
+imediat după răspuns), 95\% citiri (din care 10\% clasamente de categorie), 5\% scrieri de preț și
+popularitate Zipf cu $s = 0{,}99$ peste 100.000 de produse și 200 de categorii. Fiecare rulare are 5~s
+de încălzire (nemăsurate) și 15~s de măsurare. Contoarele aplicației sunt resetate după încălzire.
+Schimbarea modului golește cache-ul.
+
+\paragraph{Metrici.} Debitul (cereri reușite/s), latențele p50/p95/p99 (histograme HDR, rezoluție 1~µs,
+3 cifre semnificative), rata de hit (din contoarele aplicației, însumate pe instanțe), numărul de
+interogări și tranzacții în baza de date. În E8, latența este măsurată de la momentul \emph{programat}
+al cererii, ca să evităm \emph{coordinated omission} \cite{tene}.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{llX}
+\toprule
+Exp. & Variabilă & Întrebare \\
+\midrule
+E1 & backend (6) & Ce câștig aduce fiecare tip de cache față de baza de date? \\
+E2 & exponent Zipf & Cum depinde rata de hit de asimetria accesărilor, cu memorie limitată? \\
+E3 & proporția de scrieri × strategie & Ce costă coerența la scriere? \\
+E4 & clienți concurenți (1–256) & Cum scalează sistemul cu concurența? (1 client = secvențial) \\
+E5 & instanțe web (1–2) & Câștig din scalarea orizontală? \\
+E6 & noduri de cache (1–3) & Crește rata de hit cu memoria agregată a clusterului? \\
+E7 & single-flight on/off & Cât reduce protecția la stampede încărcarea bazei? \\
+E8 & backend, debit fix & Cât CPU costă o cerere în fiecare arhitectură? \\
+SIM & politică × capacitate & Cât de aproape de optim sunt LRU/FIFO/CLOCK? \\
+ENG & fire × shard-uri & Cât de bine se paralelizează motorul \texttt{memtable}? \\
+\bottomrule
+\end{tabularx}
+\caption{Experimentele realizate.}
+\end{table}
+
+\section{E1 — Comparația backend-urilor}
+
+\begin{figure}[H]
+  \centering\input{figures/plot-e1}
+  \caption{Debitul și latența pentru cele șase backend-uri (64 de clienți, 95\% citiri, Zipf 0,99).}
+  \label{fig:e1}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{lrrrr}
+\toprule
+Backend & cereri/s & p50 (ms) & p99 (ms) & hit (\%) \\
+\midrule
+\texttt{none}    & \R{e1/none/rps}    & \R{e1/none/p50}    & \R{e1/none/p99}    & — \\
+\texttt{local}   & \R{e1/local/rps}   & \R{e1/local/p50}   & \R{e1/local/p99}   & \R{e1/local/hit} \\
+\texttt{cluster} & \R{e1/cluster/rps} & \R{e1/cluster/p50} & \R{e1/cluster/p99} & \R{e1/cluster/hit} \\
+\texttt{tiered}  & \R{e1/tiered/rps}  & \R{e1/tiered/p50}  & \R{e1/tiered/p99}  & \R{e1/tiered/hit} \\
+\texttt{redis}   & \R{e1/redis/rps}   & \R{e1/redis/p50}   & \R{e1/redis/p99}   & \R{e1/redis/hit} \\
+\texttt{pgmem}   & \R{e1/pgmem/rps}   & \R{e1/pgmem/p50}   & \R{e1/pgmem/p99}   & \R{e1/pgmem/hit} \\
+\bottomrule
+\end{tabular}
+\caption{Rezultatele E1.}
+\label{tab:e1}
+\end{table}
+
+\input{chapters/disc/e1}
+
+\section{E2 — Asimetria accesărilor}
+
+\begin{figure}[H]
+  \centering\input{figures/plot-e2}
+  \caption{Rata de hit și debitul în funcție de exponentul Zipf. Cache-ul are 10\% din chei, iar
+           traficul conține doar citiri. Linia punctată este limita teoretică IRM (\cref{eq:ideal}).}
+  \label{fig:e2}
+\end{figure}
+
+\input{chapters/disc/e2}
+
+\section{E3 — Strategii de scriere}
+
+\begin{figure}[H]
+  \centering\input{figures/plot-e3}
+  \caption{Debitul și numărul de tranzacții în baza de date la 1.000 de scrieri, pentru cele trei
+           strategii (backend \texttt{cluster}).}
+  \label{fig:e3}
+\end{figure}
+
+\input{chapters/disc/e3}
+
+\section{E4 — Scalabilitatea cu numărul de clienți}
+
+\begin{figure}[H]
+  \centering\input{figures/plot-e4}
+  \caption{Debitul și latența p99 în funcție de numărul de clienți concurenți. Un client corespunde
+           execuției secvențiale.}
+  \label{fig:e4}
+\end{figure}
+
+\input{chapters/disc/e4}
+
+\section{E5–E7 — Scale-out, memorie agregată, stampede}
+
+\begin{figure}[H]
+  \centering\resizebox{\linewidth}{!}{\input{figures/plot-e5e6e7}}
+  \caption{(a) Una vs. două instanțe web (128 de clienți); (b) rata de hit cu 1–3 noduri de câte 10.000
+           de intrări (doar citiri); (c) interogări DB la pornirea la rece, cu Zipf 1,4 și 128 de clienți.}
+  \label{fig:e567}
+\end{figure}
+
+\input{chapters/disc/e567}
+
+\section{E8 — Costul CPU la debit fix}
+
+\begin{figure}[H]
+  \centering\input{figures/plot-e8}
+  \caption{CPU consumat de fiecare rol la un debit fix de 8.000 de cereri/s (open-loop). 100\% = un
+           nucleu complet.}
+  \label{fig:e8}
+\end{figure}
+
+\input{chapters/disc/e8}
+
+\section{Politici de evacuare (simulare)}
+\label{sec:sim}
+
+\begin{figure}[H]
+  \centering\input{figures/plot-sim}
+  \caption{Rata de hit în funcție de capacitate (2 milioane de cereri, 100.000 de chei; prima jumătate
+           doar încălzește cache-ul). Rândul de jos adaugă 20\% scanări secvențiale peste chei reci.}
+  \label{fig:sim}
+\end{figure}
+
+\input{chapters/disc/sim}
+
+\section{Scalabilitatea motorului \texttt{memtable}}
+
+\begin{figure}[H]
+  \centering\resizebox{\linewidth}{!}{\input{figures/plot-engine}}
+  \caption{Debitul motorului (90\% citiri, Zipf 0,99, valori de 256 B) și accelerarea față de un fir, în
+           funcție de numărul de fire și de shard-uri. Linia punctată este accelerarea ideală, limitată de
+           cele 5 nuclee.}
+  \label{fig:engine}
+\end{figure}
+
+\input{chapters/disc/engine}
+
+\section{Amenințări la validitate}
+
+\begin{itemize}
+  \item \textbf{Colocare}: generatorul și sistemul testat împart aceleași 5 nuclee, deci sub saturație o
+        parte din CPU este consumată de generator și de nginx. Debitele absolute sunt astfel subestimate
+        față de o implementare cu mașini separate.
+  \item \textbf{Rețea virtuală}: latențele de rețea dintre containere ($\approx$50–100~µs) sunt mai mici
+        decât într-un centru de date real, ceea ce avantajează baza de date și backend-urile la distanță.
+  \item \textbf{Durată}: rulările de 15~s și repetarea unică a experimentelor HTTP introduc variații de
+        câteva procente. Benchmark-ul motorului raportează mediana a 3 repetiții.
+  \item \textbf{Sarcina sintetică}: modelul IRM/Zipf nu captează corelațiile temporale ale traficului real
+        (de exemplu vârfuri sau sesiuni).
+\end{itemize}

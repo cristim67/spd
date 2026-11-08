@@ -1,0 +1,14 @@
+% Cele trei strategii de scriere.
+\begin{tikzpicture}[font=\small, node distance=4mm]
+  \foreach \col/\x/\title/\a/\b/\c in {
+      c1/0/Invalidate (cache-aside)/1. UPDATE în DB/2. DEL cheie din cache/3. următoarea citire: miss → DB,
+      c3/5.2/Write-through/1. UPDATE în DB/2. SET valoarea nouă în cache/3. citirile rămân hit,
+      c2/10.4/Write-behind/1. SET în cache; răspuns 202/2. coadă → lot (≤1024)/3. un UPDATE … unnest()} {
+    \node[draw=\col, very thick, rounded corners, minimum width=48mm, minimum height=27mm, fill=\col!6] (b) at (\x,0) {};
+    \node[font=\small\bfseries, text=\col, anchor=north] at (b.north) {\title};
+    \node[font=\scriptsize, align=left, anchor=north west] at ($(b.north west)+(2mm,-7mm)$) {\a\\[2pt]\b\\[2pt]\c};
+  }
+  \node[note, text width=46mm] at (0,-2.0) {+ simplu, corect\\− miss după fiecare scriere};
+  \node[note, text width=46mm] at (5.2,-2.0) {+ hit ratio păstrat\\− latență de scriere mai mare};
+  \node[note, text width=46mm] at (10.4,-2.0) {+ scrieri rapide, grupate\\− consistență eventuală, risc la crash};
+\end{tikzpicture}

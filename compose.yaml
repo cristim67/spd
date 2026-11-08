@@ -1,0 +1,131 @@
+# Stack complet: 2 instanțe webapp în spatele nginx, PostgreSQL (sursa de adevăr),
+# PostgreSQL in-memory (tmpfs) pentru tabela-cache UNLOGGED, Redis, 3 noduri
+# cache-node, Prometheus + Grafana. `loadgen` rulează doar cu profilul `bench`.
+#
+#   docker compose up -d --build        # pornește tot
+#   open http://localhost:8080          # UI
+#   docker compose --profile bench run --rm loadgen http --help
+
+x-app: &app
+  image: spd-memcache:latest
+  build: .
+  command: ["webapp"]
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    pgmem: { condition: service_healthy }
+    redis: { condition: service_started }
+    cache1: { condition: service_started }
+    cache2: { condition: service_started }
+    cache3: { condition: service_started }
+  environment: &app-env
+    DATABASE_URL: postgres://app:app@postgres:5432/shop
+    PGMEM_URL: postgres://app:app@pgmem:5432/cache
+    REDIS_URL: redis://redis:6379
+    CACHE_NODES: cache1:7000,cache2:7000,cache3:7000
+    CACHE_BACKEND: local
+    DB_POOL: "16"
+    UI_INSTANCES: /node/app1,/node/app2
+    RUST_LOG: info,sqlx=warn,tower_http=warn
+
+x-cache-node: &cache-node
+  image: spd-memcache:latest
+  command: ["cache-node"]
+  restart: unless-stopped
+  environment:
+    CAPACITY: "200000"
+    POLICY: lru
+    RUST_LOG: info
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: shop
+    # OLTP: fără paralelism intra-query (pornirea workerilor costă mai mult decât câștigă).
+    command: ["postgres", "-c", "max_connections=300", "-c", "shared_buffers=256MB",
+              "-c", "max_parallel_workers_per_gather=0"]
+    volumes:
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d shop"]
+      interval: 2s
+      retries: 60
+
+  # PostgreSQL cu datele în RAM (tmpfs) și durabilitate dezactivată:
+  # tabela `cache_kv` UNLOGGED este o „tabelă in-memory" relațională.
+  pgmem:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: cache
+    command: ["postgres", "-c", "max_connections=300", "-c", "fsync=off",
+              "-c", "synchronous_commit=off", "-c", "full_page_writes=off",
+              "-c", "shared_buffers=256MB"]
+    tmpfs:
+      - /var/lib/postgresql/data:size=1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d cache"]
+      interval: 2s
+      retries: 60
+
+  redis:
+    image: redis:8
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+
+  cache1: *cache-node
+  cache2: *cache-node
+  cache3: *cache-node
+
+  app1:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app1
+  app2:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app2
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on: [app1, app2]
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports: ["8080:80"]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/memcache.json
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+
+  loadgen:
+    image: spd-memcache:latest
+    profiles: ["bench"]
+    entrypoint: ["loadgen"]
+    user: "0"
+    depends_on: [nginx]
+    volumes:
+      - ./results:/work/results
+
+volumes:
+  pgdata:

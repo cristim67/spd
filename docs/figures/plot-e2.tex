@@ -1,0 +1,17 @@
+% E2 — asimetria Zipf (cache = 10% din chei, doar citiri).
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=17mm},
+    width=0.5\linewidth, height=55mm, xlabel={exponent Zipf $s$}, xtick={0.6,0.8,0.99,1.2}]
+  \nextgroupplot[ylabel={rata de hit}, ymin=0, ymax=1, legend pos=south east, title={\small (a) rata de hit}]
+    \addplot table[x=label, y=local_hit_ratio, col sep=comma] {\datadir e2.csv};
+    \addplot table[x=label, y=cluster_hit_ratio, col sep=comma] {\datadir e2.csv};
+    \addplot[c6, thick, dashed, mark=o] table[x=label, y=ideal, col sep=comma] {\datadir e2.csv};
+    \legend{local, cluster, ideal IRM}
+  \nextgroupplot[ylabel={cereri / s}, ymin=0, legend pos=north west, title={\small (b) debit},
+      kticks]
+    \addplot[c6, mark=o, thick] table[x=label, y=none_throughput_rps, col sep=comma] {\datadir e2.csv};
+    \addplot table[x=label, y=local_throughput_rps, col sep=comma] {\datadir e2.csv};
+    \addplot table[x=label, y=cluster_throughput_rps, col sep=comma] {\datadir e2.csv};
+    \legend{none, local, cluster}
+\end{groupplot}
+\end{tikzpicture}

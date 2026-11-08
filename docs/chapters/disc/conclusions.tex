@@ -1,0 +1,29 @@
+Proiectul a urmărit construirea unui sistem de cache in-memory distribuit, de la structura de date până la
+infrastructura de producție, și evaluarea lui riguroasă. Principalele concluzii:
+
+\begin{enumerate}
+  \item \textbf{Cache-ul accelerează considerabil, dar numai după ce baza de date este interogată corect.}
+        Profilarea a arătat că gâtul de sticlă inițial era PostgreSQL (410\% CPU). Tuning-ul, indecșii
+        acoperitori, eliminarea serializării prin \texttt{NOTIFY} și agregatele materializate au crescut
+        debitul cu cache de la \R{opt/baseline/rps} la \R{opt/mat-local/rps} cereri/s și au redus p99 de la
+        \R{opt/baseline/p99} la \R{opt/mat-local/p99}~ms. Pe această bază optimizată, cache-ul local mai aduce
+        \R{e1/local/speedup}× debit și reduce cu 27\% CPU-ul consumat per cerere.
+  \item \textbf{Proximitatea contează.} Cache-ul în proces are cea mai mică latență. Cache-urile partajate
+        (clusterul propriu, Redis) au rată de hit mai mare și coerență mai ieftină. Un cache la distanță este
+        rentabil doar peste un prag al ratei de hit (E2).
+  \item \textbf{O tabelă in-memory într-un SGBD relațional nu este un cache eficient} pentru date pe care SGBD-ul
+        le servește deja din memorie: costul unui hit este cel al unei interogări SQL (E1, E8).
+  \item \textbf{Strategia de scriere este un compromis consistență–performanță.} Write-behind cu benzi
+        partiționate oferă cel mai mare debit și reduce tranzacțiile de câteva ori, cu consistență eventuală.
+        Write-through păstrează rata de hit cu consistență imediată (E3).
+  \item \textbf{Paralelismul are limite concrete.} Sharding-ul transformă un motor care se blochează (1 shard)
+        într-unul care scalează, dar cheile fierbinți limitează accelerarea la acces Zipf. Scalarea orizontală
+        aduce beneficii doar cu hardware suplimentar (E5, ENG).
+  \item \textbf{Mecanismele de robustețe merită costul}: single-flight reduce cu 29\% încărcarea bazei la
+        pornirea la rece, invalidarea prin \texttt{LISTEN/NOTIFY} menține coerența în toate cele 18
+        configurații, iar write-behind nu pierde date la oprire.
+\end{enumerate}
+
+Toate obiectivele din \cref{ch:intro} au fost atinse: motorul de tabele in-memory, cache-ul distribuit,
+aplicația web cu backend-uri și strategii comutabile, comparația cu Redis și cu tabela in-memory relațională
+și evaluarea experimentală reproductibilă.

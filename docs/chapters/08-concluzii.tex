@@ -1,0 +1,17 @@
+\chapter{Concluzii}
+\label{ch:concluzii}
+
+\input{chapters/disc/conclusions}
+
+\section{Direcții viitoare}
+
+\begin{itemize}
+  \item politici de admitere și evacuare bazate pe frecvență (W-TinyLFU, ARC), pentru rezistență la scanări;
+  \item replicarea cheilor fierbinți pe mai multe noduri și \emph{lease}-uri pentru eliminarea cursei
+        citire–invalidare \cite{memcache-fb};
+  \item \texttt{MGET} și pipelining în clientul de cluster, pentru cereri care compun mai multe chei;
+  \item invalidare prin \emph{change data capture} (replicare logică) în locul \texttt{NOTIFY}, ca
+        scrierile să nu fie serializate;
+  \item rularea experimentelor pe mașini separate (generator, aplicație, bază de date) și cu latențe de
+        rețea realiste.
+\end{itemize}

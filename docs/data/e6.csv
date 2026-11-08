@@ -1,0 +1,4 @@
+label,cluster_throughput_rps,cluster_p50_ms,cluster_p99_ms,cluster_hit_ratio
+1,72095.4,0.794,2.617,0.7498
+2,71711.3,0.782,2.859,0.8214
+3,72735.8,0.724,3.315,0.865

@@ -1,0 +1,18 @@
+% Diagrama de secvență: citire cache-aside cu single-flight.
+\begin{tikzpicture}[font=\small]
+  \foreach \x/\n/\t in {0/c1/Client 1,2.6/c2/Client 2,5.8/app/Aplicație,8.8/cache/Cache,11.6/db/PostgreSQL} {
+    \node[comp, minimum width=20mm] (\n) at (\x,0) {\t};
+    \draw[gray!60, dashed] (\n.south) -- ++(0,-7.4);
+  }
+  \newcommand{\msg}[5][]{\draw[arr,#1] (#2,#4) -- node[above, font=\scriptsize]{#5} (#3,#4);}
+  \msg{0}{5.8}{-1.0}{GET /products/42}
+  \msg{2.6}{5.8}{-1.5}{GET /products/42}
+  \msg{5.8}{8.8}{-2.1}{get(k)}
+  \msg[dashed]{8.8}{5.8}{-2.6}{miss}
+  \node[draw, fill=c4!10, font=\scriptsize, align=center] at (5.8,-3.35) {single-flight: o singură\\interogare per cheie};
+  \msg{5.8}{11.6}{-4.2}{SELECT … WHERE id = \$1}
+  \msg[dashed]{11.6}{5.8}{-4.8}{rând}
+  \msg{5.8}{8.8}{-5.5}{set(k, v, ttl)}
+  \msg[dashed]{5.8}{0}{-6.3}{200, X-Cache: MISS}
+  \msg[dashed]{5.8}{2.6}{-6.9}{200 (coalescat)}
+\end{tikzpicture}

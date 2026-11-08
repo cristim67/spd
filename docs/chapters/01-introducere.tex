@@ -1,0 +1,59 @@
+\chapter{Introducere}
+\label{ch:intro}
+
+\section{Context și motivație}
+
+Aplicațiile web moderne servesc un volum mare de cereri de citire asupra unor date relativ
+stabile: pagini de produs, profile, clasamente, configurații. Baza de date relațională rămâne sursa
+de adevăr datorită garanțiilor tranzacționale (ACID), dar fiecare interogare implică rețea,
+analiză sintactică, planificare, acces la pagini și eventual agregări costisitoare. Atunci când
+aceeași informație este cerută de mii de ori pe secundă, recalcularea ei la fiecare cerere este
+risipă de resurse și, mai ales, sursă de latență.
+
+Un \emph{cache in-memory} păstrează rezultate deja calculate în memoria RAM, aproape de aplicație,
+astfel încât cererile repetate să fie servite în microsecunde, fără a atinge baza de date. Practic
+toate sistemele web la scară mare folosesc o astfel de soluție (Memcached la Facebook
+\cite{memcache-fb}, Redis, cache-uri locale de tip Caffeine/Guava etc.). Problema este însă mai
+subtilă decât pare: memoria este limitată (trebuie ales \emph{ce} păstrăm), datele se modifică
+(trebuie menținută coerența), iar sistemul este distribuit (mai multe instanțe, mai multe noduri).
+
+\section{Obiectivele proiectului}
+
+Proiectul urmărește proiectarea și realizarea unei aplicații paralele și distribuite care să răspundă
+concret acestor probleme:
+
+\begin{enumerate}
+  \item un \textbf{motor de tabele in-memory} (\texttt{memtable}) thread-safe, cu sharding, politici de
+        evacuare LRU/FIFO/CLOCK, TTL și invalidare pe grupuri de chei (tag-uri);
+  \item un \textbf{cache distribuit}: noduri de cache accesate printr-un protocol TCP propriu și un client
+        care distribuie cheile prin \emph{consistent hashing};
+  \item o \textbf{aplicație web} realistă (catalog de produse cu recenzii în PostgreSQL) care folosește
+        cache-ul prin mai multe strategii de citire și scriere, comutabile la runtime;
+  \item \textbf{comparația cu alternative}: Redis și o tabelă in-memory relațională (tabelă
+        \texttt{UNLOGGED} într-un PostgreSQL cu date pe \texttt{tmpfs});
+  \item o \textbf{evaluare experimentală} riguroasă: debit, latențe pe percentile, rata de hit,
+        scalabilitate (fire, clienți, instanțe, noduri) și comparația cu varianta secvențială.
+\end{enumerate}
+
+\section{Contribuții}
+
+\begin{itemize}
+  \item Implementare completă în Rust (≈3.400 de linii), fără cod \texttt{unsafe}, verificată cu
+        \texttt{clippy} în modul \emph{pedantic} și acoperită de teste unitare și de integrare.
+  \item Infrastructură reproductibilă cu Docker Compose: 12 containere, observabilitate cu
+        Prometheus și Grafana, documentație OpenAPI (Swagger) și o interfață web de control.
+  \item Mecanisme avansate: \emph{single-flight} (protecție la \emph{cache stampede}), cache pe două
+        niveluri (\emph{near-cache}), invalidare distribuită prin \texttt{LISTEN/NOTIFY}, write-behind cu
+        grupare în loturi și oprire fără pierderi de date.
+  \item Un generator de încărcare propriu cu distribuție Zipf și histograme HDR și un simulator
+        trace-driven pentru politicile de evacuare, comparate cu limita teoretică.
+\end{itemize}
+
+\section{Structura documentului}
+
+\Cref{ch:fundamente} prezintă fundamentele teoretice. \Cref{ch:analiza} definește problema și
+cerințele și compară arhitectura secvențială cu cea paralelă/distribuită. \Cref{ch:arhitectura}
+descrie arhitectura sistemului, iar \cref{ch:implementare} detaliile de implementare.
+\Cref{ch:tehnologii} trece în revistă tehnologiile utilizate. \Cref{ch:evaluare} conține
+metodologia și rezultatele experimentale, iar \cref{ch:concluzii} concluziile. Anexa
+\ref{ch:rulare} descrie rularea proiectului.

@@ -1,0 +1,8 @@
+\paragraph{Interpretare.} La același debit (8.000 de cereri/s, toate servite fără erori), suma CPU consumată
+de aplicație, baza de date și serverele de cache este de \R{e8/none/usreq}~µs per cerere fără cache și
+\R{e8/local/usreq}~µs cu cache local ($-$27\%). Pentru cluster este \R{e8/cluster/usreq}~µs, iar pentru Redis
+\R{e8/redis/usreq}~µs. Consumul PostgreSQL scade de la \R{e8/none/db}\% la \R{e8/cluster/db}\% dintr-un nucleu
+cu cache-ul partajat. Cu cache local scade doar la \R{e8/local/db}\%, din cauza \texttt{NOTIFY} și a ratei de hit
+mai mici. Varianta \texttt{pgmem} este cea mai scumpă (\R{e8/pgmem/usreq}~µs per cerere): CPU-ul economisit în
+baza principală se mută, amplificat, în serverul PostgreSQL care ține cache-ul. Măsurătoarea confirmă
+concluzia din E1 dintr-un unghi independent de saturare.
